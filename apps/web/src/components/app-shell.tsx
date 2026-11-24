@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Dialog as RDialog } from 'radix-ui';
 import {
   Activity, AlertTriangle, BarChart3, Bell, Building2, CalendarCheck, ChevronsUpDown, CreditCard, GitBranch, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen,
-  Plus, Search, Settings, Target, UserCircle, Users, Workflow, Zap, Check, CheckCheck, X, Handshake,
+  Plus, Search, Settings, ShieldAlert, Target, UserCircle, Users, Workflow, Zap, Check, CheckCheck, X, Handshake,
 } from 'lucide-react';
 import type { PermissionKey } from '@leadflow/shared';
 import { cn } from '@/lib/utils';
@@ -128,7 +128,7 @@ function GlobalSearch() {
   return (
     <div className="relative w-full max-w-md">
       <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" />
-      <Input ref={ref} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="Search leads by name, email, phone…" aria-label="Search leads" className="h-8 pl-8 pr-12 bg-subtle/70 shadow-none"
+      <Input ref={ref} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="Search leads by name, email, phone…" aria-label="Global search" className="h-8 pl-8 pr-12 bg-subtle/70 shadow-none"
         onKeyDown={(e) => { if (e.key === 'Enter' && q.trim()) { router.push(`/leads?q=${encodeURIComponent(q.trim())}`); setOpen(false); } if (e.key === 'Escape') { setOpen(false); ref.current?.blur(); } }} />
       <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-line bg-surface px-1.5 text-[10px] font-medium text-ink-3 sm:block">⌘K</kbd>
       {open && debounced.length >= 2 && (
@@ -240,7 +240,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (me.data && !loading && !workspaces.length) router.replace(me.data.user.platformRole ? '/platform' : '/onboarding');
   }, [me.data, loading, workspaces.length, router]);
-  const { org } = useOrg();
+  const { org, canAny } = useOrg();
   React.useEffect(() => {
     if (org && current && !org.organization.onboardingCompletedAt && current.role.key === 'OWNER' && path !== '/onboarding') router.replace(`/onboarding?org=${current.organization.id}`);
   }, [org, current, path, router]);
@@ -248,6 +248,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (me.isLoading || !current) {
     return <div className="flex h-dvh items-center justify-center"><div className="flex flex-col items-center gap-3"><Logo /><Spinner /></div></div>;
   }
+  const guard = NAV.flatMap((g) => g.items).find((i) => path === i.href || path.startsWith(`${i.href}/`));
+  const allowed = !guard?.perms || canAny(...guard.perms);
   const seg = path.split('/').filter(Boolean);
   const crumbs = [{ label: current.organization.name, href: '/dashboard' }, ...(seg[0] ? [{ label: CRUMBS[seg[0]] ?? seg[0], href: `/${seg[0]}` }] : []), ...(seg[1] ? [{ label: 'Details', href: path }] : [])];
 
@@ -286,7 +288,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-1.5"><NotificationBell /><UserMenu /></div>
         </header>
         <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1480px] px-3 py-5 sm:px-6 sm:py-6">{children}</div>
+          <div className="mx-auto w-full max-w-[1480px] px-3 py-5 sm:px-6 sm:py-6">{allowed ? children : <EmptyState className="py-24" icon={<ShieldAlert />} title="You don't have access to this page" description="Your role in this workspace doesn't include it. Ask a workspace owner or admin if you need access." action={<Link href="/dashboard"><Button variant="primary">Back to dashboard</Button></Link>} />}</div>
         </main>
       </div>
     </div>

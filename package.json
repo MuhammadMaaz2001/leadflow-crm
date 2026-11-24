@@ -2,16 +2,20 @@
   "name": "leadflow-crm",
   "private": true,
   "version": "1.0.0",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "concurrently -n api,worker,web -c blue,magenta,green \"npm run dev -w @leadflow/api\" \"npm run dev:worker -w @leadflow/api\" \"npm run dev -w @leadflow/web\"",
     "build": "npm run build -w @leadflow/shared && npm run build -w @leadflow/database && npm run build -w @leadflow/api && npm run build -w @leadflow/web",
     "typecheck": "npm run typecheck -w @leadflow/shared && npm run typecheck -w @leadflow/api && npm run typecheck -w @leadflow/web",
     "db:migrate": "npm run migrate -w @leadflow/database",
-    "db:seed": "npm run seed -w @leadflow/database",
-    "db:reset": "npm run reset -w @leadflow/database",
+    "db:seed": "npm run seed -w @leadflow/api",
+    "db:reset": "npm run reset -w @leadflow/database && npm run seed -w @leadflow/api",
     "test": "npm run test -w @leadflow/api && npm run test -w @leadflow/web",
-    "test:e2e": "npm run test:e2e -w @leadflow/web"
+    "test:e2e": "npm run test:e2e -w @leadflow/web",
+    "docs:api": "npm run docs:api -w @leadflow/api"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

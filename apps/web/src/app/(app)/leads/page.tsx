@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
-import { Archive, CalendarPlus, ChevronDown, Download, Filter, MoreHorizontal, Pencil, Phone, Plus, RotateCcw, Search, Tags, Target, Upload, UserPlus, X, Flag } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Archive, Bookmark, BookmarkPlus, CalendarPlus, ChevronDown, Copy, Download, Filter, MoreHorizontal, Pencil, Phone, Plus, RotateCcw, Search, Tags, Target, Trash2, Upload, UserPlus, X, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useCustomFields, useMembers, usePriorities, useSources, useTags } from '@/lib/hooks';
@@ -14,11 +14,12 @@ import { Checkbox, Input, Select, Field } from '@/components/ui/form';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Pagination, UserChip } from '@/components/ui/data';
 import { DataTable, type Column } from '@/components/ui/table';
 import { DropdownContent, DropdownItem, DropdownLabel, DropdownMenu, DropdownSeparator, DropdownTrigger, Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu';
-import { useConfirm } from '@/components/ui/overlay';
+import { Dialog, useConfirm } from '@/components/ui/overlay';
 import { PriorityDot, SourceTag, StatusBadge } from '@/components/badges';
 import { TagChip } from '@/components/tag-picker';
 import { LeadFormSheet, type EditableLead } from '@/components/lead-form';
 import { LeadImportDialog } from '@/components/lead-import';
+import { DuplicatesDialog } from '@/components/duplicates-dialog';
 import { AssignDialog, LogActivityDialog, LostReasonDialog, ScheduleFollowUpDialog, type LeadLite } from '@/components/dialogs';
 
 export interface LeadRow extends EditableLead {
@@ -28,10 +29,47 @@ export interface LeadRow extends EditableLead {
 
 const DEFAULTS = { q: '', status: '', priorityId: '', sourceId: '', assignedToId: '', tagId: '', createdFrom: '', createdTo: '', archived: 'false', uncontacted: '', hasOverdueFollowUp: '', noFollowUp: '', sort: 'createdAt', order: 'desc', page: '1', pageSize: '25' };
 
+interface SavedView { name: string; query: string }
+function SavedViews({ orgId }: { orgId: string | undefined }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const key = `lf_views_${orgId}`;
+  const [views, setViews] = React.useState<SavedView[]>([]);
+  const [naming, setNaming] = React.useState(false);
+  const [name, setName] = React.useState('');
+  React.useEffect(() => { try { setViews(JSON.parse(localStorage.getItem(key) ?? '[]')); } catch { setViews([]); } }, [key]);
+  const persist = (v: SavedView[]) => { setViews(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ } };
+  const current = (() => { const p = new URLSearchParams(params.toString()); p.delete('page'); return p.toString(); })();
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownTrigger asChild><Button><Bookmark className="size-3.5" />Views</Button></DropdownTrigger>
+        <DropdownContent align="start" className="w-64">
+          <DropdownLabel>Saved views</DropdownLabel>
+          {views.length === 0 && <p className="px-2 py-1.5 text-xs text-ink-3">No saved views yet. Set filters, then save them.</p>}
+          {views.map((v) => (
+            <DropdownItem key={v.name} onSelect={() => router.replace(v.query ? `/leads?${v.query}` : '/leads')}>
+              <span className="min-w-0 flex-1 truncate">{v.name}</span>
+              <button aria-label={`Delete view ${v.name}`} className="text-ink-3 hover:text-bad" onClick={(e) => { e.stopPropagation(); persist(views.filter((x) => x.name !== v.name)); }}><Trash2 className="size-3.5" /></button>
+            </DropdownItem>
+          ))}
+          <DropdownSeparator />
+          <DropdownItem icon={<BookmarkPlus />} onSelect={() => { setName(''); setNaming(true); }}>Save current filters…</DropdownItem>
+        </DropdownContent>
+      </DropdownMenu>
+      <Dialog open={naming} onOpenChange={setNaming} size="sm" title="Save view" description="Saved in this browser for this workspace."
+        footer={<><Button onClick={() => setNaming(false)}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => { persist([...views.filter((x) => x.name !== name.trim()), { name: name.trim(), query: current }]); setNaming(false); toast.success('View saved'); }}>Save view</Button></>}>
+        <Field label="View name" required><Input aria-label="View name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot leads without follow-up" onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) { persist([...views.filter((x) => x.name !== name.trim()), { name: name.trim(), query: current }]); setNaming(false); toast.success('View saved'); } }} /></Field>
+      </Dialog>
+    </>
+  );
+}
+
 function LeadsPageInner() {
   const router = useRouter();
   const confirm = useConfirm();
-  const { can, has } = useOrg();
+  const { can, has, orgId } = useOrg();
+  const [dupOpen, setDupOpen] = React.useState(false);
   const [f, setF] = useUrlState(DEFAULTS);
   const [search, setSearch] = React.useState(f.q);
   const dsearch = useDebounced(search, 300);
@@ -99,6 +137,7 @@ function LeadsPageInner() {
     <>
       <PageHeader title="Leads" count={q.data ? total.toLocaleString() : undefined} description="Every lead, owner and next step in one place."
         actions={<>
+          {can('leads.merge') && <Button onClick={() => setDupOpen(true)}><Copy className="size-3.5" />Duplicates</Button>}
           {can('leads.import') && <Button onClick={() => (has('import_export') ? setImportOpen(true) : toast.error('Import requires a plan with CSV / Excel import. Upgrade in Billing.'))}><Upload className="size-3.5" />Import</Button>}
           {can('leads.export') && (
             <DropdownMenu>
@@ -138,6 +177,7 @@ function LeadsPageInner() {
               <div className="mt-4 flex justify-between"><Button variant="ghost" onClick={() => { setF({ status: '', priorityId: '', sourceId: '', assignedToId: '', tagId: '', createdFrom: '', createdTo: '', archived: 'false', uncontacted: '', hasOverdueFollowUp: '', noFollowUp: '' }); }}>Clear all</Button><Button variant="primary" onClick={() => setFiltersOpen(false)}>Done</Button></div>
             </PopoverContent>
           </Popover>
+          <SavedViews orgId={orgId} />
           {(activeFilters > 0 || f.q) && <Button variant="ghost" onClick={() => { setSearch(''); router.replace('/leads'); }}><X className="size-3.5" />Reset</Button>}
         </div>
 
@@ -178,6 +218,7 @@ function LeadsPageInner() {
 
       <LeadFormSheet open={formOpen || !!editLead} onOpenChange={(o) => { if (!o) { setFormOpen(false); setEditLead(null); } }} lead={editLead} onSaved={(id) => { if (!editLead) router.push(`/leads/${id}`); }} />
       <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <DuplicatesDialog open={dupOpen} onOpenChange={setDupOpen} />
       <AssignDialog open={!!assignFor} onOpenChange={(o) => !o && setAssignFor(null)} title={`Assign ${assignFor?.length ?? 0} lead${assignFor?.length === 1 ? '' : 's'}`} loading={bulk.isPending} onConfirm={(userId) => bulk.mutate({ ids: assignFor, action: 'assign', assignedToId: userId })} />
       <LostReasonDialog open={!!lostFor} onOpenChange={(o) => !o && setLostFor(null)} loading={bulk.isPending} title={`Mark ${lostFor?.length ?? 0} lead(s) as lost`} onConfirm={(reasonId) => bulk.mutate({ ids: lostFor, action: 'status', status: 'LOST', lostReasonId: reasonId })} />
       <ScheduleFollowUpDialog open={!!followUpFor} onOpenChange={(o) => !o && setFollowUpFor(null)} lead={followUpFor} />

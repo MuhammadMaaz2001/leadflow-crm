@@ -71,3 +71,6 @@ docs            Reporting definitions
 Authentication & workspaces · dashboard & analytics · lead management (CRUD, search, filters, bulk, CSV/Excel import & export, duplicate detection & merge, tags, custom fields, assignment history) · pipeline & opportunities (kanban + table, drag & drop, custom pipelines/stages, stage history, lost reasons) · follow-ups (schedule / complete with outcome / reschedule / cancel / calendar / reminders) · team & assignment (manual, bulk, round-robin, rule-based) · activity timeline · tasks & calendar · 11 reports with CSV/Excel export · notifications & automation engine (BullMQ) · workspace settings · SaaS billing & plan limits · platform administration.
 
 See [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md) for the verified status, test results and known limitations.
+
+## Test results (last run in this environment)
+`npm test` → API 51/51 · web 13/13 · `npm run test:e2e` → 6/6 · `npm run build` ✔ · `npm run typecheck` ✔. Details and known limitations: [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md).

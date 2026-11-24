@@ -25,6 +25,12 @@ function CompanyTab() {
   React.useEffect(() => { if (o) { setF({ name: o.name, industry: o.industry ?? '', website: o.website ?? '', contactEmail: o.contactEmail ?? '', contactPhone: o.contactPhone ?? '', address: o.address ?? '', country: o.country ?? '', timezone: o.timezone, currency: o.currency, dateFormat: o.dateFormat, notContactedHours: String(o.notContactedHours), inactiveDays: String(o.inactiveDays), logoData: o.logoData }); setDirty(false); } }, [o]);
   const save = useAct(() => api.patch('/organizations/current', { name: f.name, industry: f.industry || null, website: f.website || null, contactEmail: f.contactEmail || null, contactPhone: f.contactPhone || null, address: f.address || null, country: f.country || null, timezone: f.timezone, currency: f.currency, dateFormat: f.dateFormat, notContactedHours: Number(f.notContactedHours), inactiveDays: Number(f.inactiveDays), logoData: f.logoData || null }), { success: 'Workspace settings saved', silent: true, onSuccess: () => setDirty(false), onError: (e) => setError(errMsg(e)) });
   const set = (p: Partial<typeof f>) => { setF({ ...f, ...p }); setDirty(true); };
+  React.useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
   function onLogo(file?: File) { if (!file) return; if (file.size > 400_000) { setError('Logo must be smaller than 400 KB'); return; } const r = new FileReader(); r.onload = () => set({ logoData: String(r.result) }); r.readAsDataURL(file); }
   if (!o) return <Skeleton className="h-96" />;
   return (
@@ -65,6 +71,18 @@ function CompanyTab() {
       </Card>
       <div className="sticky bottom-3 flex justify-end"><Button variant="primary" size="lg" loading={save.isPending} disabled={!dirty} onClick={() => { setError(null); save.mutate(); }} className="shadow-pop">Save changes</Button></div>
     </div>
+  );
+}
+
+function MembersTab() {
+  const q = useT(['members'], () => api.get<Array<{ id: string; name: string; email: string; status: string; role: { name: string } }>>('/members'));
+  const { org } = useOrg();
+  return (
+    <Card>
+      <CardHeader title="Workspace members" description="Invite people, change roles and deactivate access from Team Members." actions={<Link href="/team"><Button size="sm" variant="primary">Manage team</Button></Link>} />
+      <p className="px-4 pt-2 text-xs text-ink-3">{org?.usage.seats ?? 0} of {org?.usage.maxSeats ?? 0} seats in use{org?.usage.pendingInvites ? ` · ${org.usage.pendingInvites} pending invitation(s)` : ''}.</p>
+      <ul className="mt-3 divide-y divide-line border-t border-line">{q.data?.map((m) => <li key={m.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]"><span className="flex-1"><span className="font-medium">{m.name}</span><span className="ml-2 text-xs text-ink-3">{m.email}</span></span><Badge tone={m.status === 'ACTIVE' ? 'accent' : 'bad'}>{m.status === 'ACTIVE' ? m.role.name : 'Deactivated'}</Badge></li>)}</ul>
+    </Card>
   );
 }
 
@@ -234,10 +252,11 @@ export default function SettingsPage() {
       <PageHeader title="Workspace settings" description="Configure how your company works inside LeadFlow." />
       <Tabs defaultValue="company">
         <TabsList>
-          {[['company', 'Company'], ['roles', 'Roles & permissions'], ['sources', 'Lead sources'], ['priorities', 'Priorities'], ['pipelines', 'Pipelines'], ['fields', 'Custom fields'], ['tags', 'Tags'], ['lost', 'Lost reasons'], ['notifications', 'Notifications']].map(([v, l]) => <TabsTrigger key={v} value={v!}>{l}</TabsTrigger>)}
+          {[['company', 'Company'], ['members', 'Members'], ['roles', 'Roles & permissions'], ['sources', 'Lead sources'], ['priorities', 'Priorities'], ['pipelines', 'Pipelines'], ['fields', 'Custom fields'], ['tags', 'Tags'], ['lost', 'Lost reasons'], ['notifications', 'Notifications']].map(([v, l]) => <TabsTrigger key={v} value={v!}>{l}</TabsTrigger>)}
         </TabsList>
         <div className="pt-5">
           <TabsContent value="company"><CompanyTab /></TabsContent>
+          <TabsContent value="members"><MembersTab /></TabsContent>
           <TabsContent value="roles"><RolesTab /></TabsContent>
           <TabsContent value="sources"><LookupManager title="Lead sources" description="Where leads come from. Powers the source-performance reports." path="/lead-sources" noun="source" /></TabsContent>
           <TabsContent value="priorities"><LookupManager title="Lead priorities" description="Hot, Warm, Cold by default — rename or add your own levels." path="/lead-priorities" noun="priority" hint="New leads default to “Warm” when no priority is chosen." /></TabsContent>

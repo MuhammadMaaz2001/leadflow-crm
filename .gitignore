@@ -9,3 +9,9 @@ test-results
 packages/database/generated
 .DS_Store
 uploads
+
+*.tsbuildinfo
+test-results
+next-env.d.ts
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
