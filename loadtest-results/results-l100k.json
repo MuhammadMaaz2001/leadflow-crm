@@ -1,0 +1,296 @@
+{
+  "label": "l100k",
+  "counts": {
+    "leads": 100000,
+    "opportunities": 7069,
+    "follow_ups": 5276,
+    "tasks": 2625,
+    "activities": 79572,
+    "notifications": 11500
+  },
+  "when": "2026-11-24T14:14:21.015Z",
+  "api": "http://localhost:4100",
+  "rows": [
+    {
+      "scenario": "auth-login",
+      "connections": 10,
+      "durationS": 15.01,
+      "reqPerSec": 55,
+      "p50": 176,
+      "p90": 210,
+      "p97_5": 258,
+      "p99": 275,
+      "max": 336,
+      "total": 825,
+      "ok2xx": 825,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 825
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-list",
+      "connections": 20,
+      "durationS": 15.07,
+      "reqPerSec": 85,
+      "p50": 225,
+      "p90": 315,
+      "p97_5": 378,
+      "p99": 421,
+      "max": 529,
+      "total": 1281,
+      "ok2xx": 1281,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 1281
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-list-deep-page",
+      "connections": 20,
+      "durationS": 15.04,
+      "reqPerSec": 66,
+      "p50": 301,
+      "p90": 383,
+      "p97_5": 447,
+      "p99": 481,
+      "max": 685,
+      "total": 995,
+      "ok2xx": 995,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 995
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-search",
+      "connections": 20,
+      "durationS": 15.03,
+      "reqPerSec": 45,
+      "p50": 382,
+      "p90": 685,
+      "p97_5": 1083,
+      "p99": 1554,
+      "max": 2357,
+      "total": 672,
+      "ok2xx": 672,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 672
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-filter-sort",
+      "connections": 20,
+      "durationS": 15.02,
+      "reqPerSec": 95,
+      "p50": 194,
+      "p90": 286,
+      "p97_5": 376,
+      "p99": 491,
+      "max": 753,
+      "total": 1420,
+      "ok2xx": 1420,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 1420
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "lead-detail",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 247,
+      "p50": 76,
+      "p90": 96,
+      "p97_5": 114,
+      "p99": 135,
+      "max": 392,
+      "total": 3710,
+      "ok2xx": 3710,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 3710
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "lead-create",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 72,
+      "p50": 269,
+      "p90": 319,
+      "p97_5": 357,
+      "p99": 377,
+      "max": 414,
+      "total": 1083,
+      "ok2xx": 1083,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "201": 1083
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "lead-assign",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 181,
+      "p50": 108,
+      "p90": 126,
+      "p97_5": 147,
+      "p99": 169,
+      "max": 442,
+      "total": 2710,
+      "ok2xx": 2710,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 2710
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "pipeline-board",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 28,
+      "p50": 670,
+      "p90": 797,
+      "p97_5": 907,
+      "p99": 961,
+      "max": 1067,
+      "total": 425,
+      "ok2xx": 425,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 425
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "dashboard",
+      "connections": 20,
+      "durationS": 15.03,
+      "reqPerSec": 43,
+      "p50": 390,
+      "p90": 821,
+      "p97_5": 1075,
+      "p99": 1303,
+      "max": 1674,
+      "total": 643,
+      "ok2xx": 643,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 643
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "reports",
+      "connections": 20,
+      "durationS": 15.03,
+      "reqPerSec": 123,
+      "p50": 101,
+      "p90": 501,
+      "p97_5": 614,
+      "p99": 676,
+      "max": 1410,
+      "total": 1850,
+      "ok2xx": 1850,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 1850
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "notifications",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 458,
+      "p50": 42,
+      "p90": 52,
+      "p97_5": 59,
+      "p99": 64,
+      "max": 255,
+      "total": 6871,
+      "ok2xx": 6871,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 6871
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "followups-tasks",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 326,
+      "p50": 59,
+      "p90": 74,
+      "p97_5": 83,
+      "p99": 90,
+      "max": 111,
+      "total": 4895,
+      "ok2xx": 4895,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 4895
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "MIXED-100-users",
+      "connections": 100,
+      "durationS": 30.08,
+      "reqPerSec": 93,
+      "p50": 830,
+      "p90": 2435,
+      "p97_5": 3121,
+      "p99": 3252,
+      "max": 3625,
+      "total": 2789,
+      "ok2xx": 2789,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 2689,
+        "201": 100
+      },
+      "errorRatePct": 0
+    }
+  ]
+}

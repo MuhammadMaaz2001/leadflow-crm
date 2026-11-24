@@ -41,6 +41,7 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | GET | `/api/organizations/current` | org | — | Current workspace details, plan and usage |
 | PATCH | `/api/organizations/current` | org | settings.manage | Update company profile & workspace configuration |
 | POST | `/api/organizations/current/onboarding` | org | settings.manage | Save onboarding wizard step / complete onboarding |
+| GET | `/api/organizations/{orgId}/logo` | user | — | Workspace logo (object storage) |
 | GET | `/api/organizations/current/roles-summary` | org | — | Role keys |
 
 ### Team
@@ -247,6 +248,8 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | Method | Path | Auth | Permission / feature | Summary |
 |---|---|---|---|---|
 | GET | `/api/health` | public | — | Liveness probe |
+| GET | `/api/health/live` | public | — | Liveness probe (process is up) |
+| GET | `/api/health/ready` | public | — | Readiness probe (database + redis) |
 | GET | `/api/dev/mailbox` | public | — | DEV ONLY: list outbound emails |
 | POST | `/api/dev/scheduler/tick` | public | — | DEV ONLY: run the background scheduler once |
 

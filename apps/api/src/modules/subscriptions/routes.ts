@@ -1,6 +1,7 @@
 import { changePlanSchema, recordPaymentSchema, PLAN_FEATURES } from '@leadflow/shared';
 import { db } from '../../db';
-import { AppError, notFound } from '../../lib/errors';
+import { AppError, forbidden, notFound } from '../../lib/errors';
+import { config } from '../../config';
 import { audit } from '../../lib/audit';
 import { defineRoutes } from '../../http';
 import { notify } from '../notifications/service';
@@ -99,6 +100,8 @@ billing.get('/invoices/:id', { perm: ['billing.view', 'billing.manage'], allowEx
 });
 
 billing.post('/invoices/:id/record-payment', { perm: 'billing.manage', allowExpired: true, body: recordPaymentSchema, summary: 'DEVELOPMENT / MANUAL: record that an invoice was paid outside the system' }, async ({ ctx, params, body }) => {
+  // A tenant must never be able to declare its own invoice paid in a real deployment: only dev/test environments allow this.
+  if (!config.devTools) throw forbidden('Invoices are marked as paid by LeadFlow once payment is received. Contact billing support if you have already paid.', 'SELF_PAYMENT_DISABLED');
   const inv = await db().invoice.findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
   if (!inv) throw notFound('Invoice');
   if (inv.status === 'PAID') throw new AppError(409, 'ALREADY_PAID', 'This invoice is already paid.');

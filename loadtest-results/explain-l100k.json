@@ -1,0 +1,92 @@
+[
+  {
+    "q": "leads list (page 1, newest first)",
+    "ms": 0.143,
+    "plan": "Index Scan using leads_active_idx on leads (actual time=0.018..0.077 rows=25 loops=1)"
+  },
+  {
+    "q": "leads list count(*)",
+    "ms": 27.865,
+    "plan": "Index Only Scan using leads_inactivity_scan_idx on leads (actual time=0.062..15.411 rows=101403 loops=1)"
+  },
+  {
+    "q": "leads list, agent scope (own leads)",
+    "ms": 0.727,
+    "plan": "Seq Scan on leads leads_1 (actual time=0.119..0.119 rows=1 loops=1)"
+  },
+  {
+    "q": "leads list, status filter + sort by last activity",
+    "ms": 0.167,
+    "plan": "Index Scan Backward using leads_inactivity_scan_idx on leads (actual time=0.011..0.123 rows=25 loops=1)"
+  },
+  {
+    "q": "leads search ILIKE %smith% (name/email/company/phone)",
+    "ms": 4.495,
+    "plan": "Index Scan using leads_active_idx on leads (actual time=2.848..4.461 rows=25 loops=1)"
+  },
+  {
+    "q": "leads search, rare term (worst case: scans the workspace)",
+    "ms": 226.032,
+    "plan": "Index Scan using leads_active_idx on leads (actual time=226.002..226.003 rows=0 loops=1)"
+  },
+  {
+    "q": "duplicate check by normalised e-mail (lead create)",
+    "ms": 0.043,
+    "plan": "Index Scan using leads_organization_id_email_normalized_idx on leads (actual time=0.022..0.022 rows=0 loops=1)"
+  },
+  {
+    "q": "plan limit: count of active leads (lead create)",
+    "ms": 27.126,
+    "plan": "Index Only Scan using leads_inactivity_scan_idx on leads (actual time=0.013..13.911 rows=101403 loops=1)"
+  },
+  {
+    "q": "dashboard: leads by status",
+    "ms": 41.579,
+    "plan": "Bitmap Heap Scan on leads (actual time=3.053..24.707 rows=101403 loops=1)"
+  },
+  {
+    "q": "dashboard: leads created per day (30 days)",
+    "ms": 3.936,
+    "plan": "Index Only Scan using leads_active_idx on leads (actual time=0.012..1.419 rows=6976 loops=1)"
+  },
+  {
+    "q": "dashboard: leads by source",
+    "ms": 5.306,
+    "plan": "Index Scan using leads_active_idx on leads (actual time=0.009..3.047 rows=6976 loops=1)"
+  },
+  {
+    "q": "pipeline: open value per stage",
+    "ms": 3.216,
+    "plan": "Bitmap Heap Scan on opportunities (actual time=0.176..1.477 rows=7069 loops=1)"
+  },
+  {
+    "q": "pipeline: cards of one stage (60)",
+    "ms": 0.979,
+    "plan": "Seq Scan on opportunities opportunities_1 (actual time=0.167..0.167 rows=1 loops=1)"
+  },
+  {
+    "q": "follow-ups: due today / overdue",
+    "ms": 0.093,
+    "plan": "Index Scan using follow_ups_pending_due_idx on follow_ups (actual time=0.013..0.053 rows=25 loops=1)"
+  },
+  {
+    "q": "notifications: unread count for a user",
+    "ms": 1.424,
+    "plan": "Seq Scan on notifications notifications_1 (actual time=0.943..0.944 rows=1 loops=1)"
+  },
+  {
+    "q": "scheduler: uncontacted leads scan",
+    "ms": 5.355,
+    "plan": "Seq Scan on leads (actual time=1.295..5.292 rows=200 loops=1)"
+  },
+  {
+    "q": "scheduler: inactive leads scan",
+    "ms": 0.186,
+    "plan": "Seq Scan on leads (actual time=0.006..0.137 rows=200 loops=1)"
+  },
+  {
+    "q": "activity timeline of one lead",
+    "ms": 0.063,
+    "plan": "Seq Scan on leads (actual time=0.003..0.003 rows=1 loops=1)"
+  }
+]

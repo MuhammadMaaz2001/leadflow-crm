@@ -8,7 +8,9 @@ import { defineRoutes, paged, created, type SessionUser } from '../../http';
 import { pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { applyPayment } from '../subscriptions/lifecycle';
 import { periodEnd } from '../subscriptions/service';
-import { QUEUE_NAME, redisConnection, redisHealthy } from '../../lib/queue';
+import { queueCounts } from '../../lib/queue';
+import { checkRedis, workerStatus } from '../../lib/health';
+import { emailStatus } from '../../lib/email';
 import { config } from '../../config';
 
 export const platform = defineRoutes('Platform administration', '/platform');
@@ -226,16 +228,20 @@ platform.get('/health', { auth: 'platform', summary: 'System health' }, async ()
   const t0 = Date.now();
   let db = false; let dbMs = 0;
   try { await prisma.$queryRaw`SELECT 1`; db = true; dbMs = Date.now() - t0; } catch { db = false; }
-  const redis = await redisHealthy();
+  const redis = (await checkRedis()).ok;
   let queue: Record<string, number> | null = null;
   if (redis) {
-    try { const { Queue } = await import('bullmq'); const q = new Queue(QUEUE_NAME, { connection: redisConnection() }); queue = await q.getJobCounts('waiting', 'active', 'failed', 'delayed', 'completed'); await q.close(); } catch { queue = null; }
+    queue = await queueCounts().catch(() => null);
   }
+  const workers = redis ? await workerStatus().catch(() => null) : null;
+  const jobsOk = config.jobsInline || (!!workers && workers.workers > 0 && !workers.schedulerStale);
   const [migrations] = await pdb.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`.catch(() => [{ n: 0n }]);
   return {
-    status: db && redis ? 'healthy' : db ? 'degraded' : 'down',
+    status: db && redis && jobsOk ? 'healthy' : db ? 'degraded' : 'down',
     checks: { database: { ok: db, latencyMs: dbMs }, redis: { ok: redis }, queue: { ok: !!queue, counts: queue } },
     system: { node: process.version, uptimeSeconds: Math.round(process.uptime()), memoryMb: Math.round(process.memoryUsage().rss / 1048576), loadAvg: os.loadavg().map((l) => Math.round(l * 100) / 100), env: config.env, appliedMigrations: Number(migrations?.n ?? 0) },
     jobsMode: config.jobsInline ? 'inline' : 'bullmq',
+    workers,
+    providers: { email: emailStatus(), storage: config.storageProvider, payment: config.paymentProvider, rateLimitStore: config.rateLimitStore },
   };
 });

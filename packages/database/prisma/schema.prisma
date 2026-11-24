@@ -239,6 +239,13 @@ model OutboundEmail {
   body      String
   link      String?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// QUEUED → SENT | FAILED (will be retried) | UNDELIVERABLE (no provider configured)
+  status    String   @default("QUEUED")
+  provider  String?
+  attempts  Int      @default(0)
+  lastError String?  @map("last_error")
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(6)
+  messageId String?  @map("message_id")
 
   @@index([toEmail, createdAt])
   @@map("outbound_emails")
@@ -958,6 +965,22 @@ model Invoice {
   @@index([organizationId, issuedAt])
   @@index([status])
   @@map("invoices")
+}
+
+/// Idempotency ledger for payment-provider events (a provider event is applied at most once).
+model PaymentEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  provider   String
+  eventId    String   @map("event_id")
+  eventType  String   @map("event_type")
+  invoiceId  String?  @map("invoice_id") @db.Uuid
+  outcome    String
+  detail     String?
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@unique([provider, eventId], map: "payment_events_provider_event_unique")
+  @@index([invoiceId])
+  @@map("payment_events")
 }
 
 model UsageRecord {

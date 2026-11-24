@@ -7,8 +7,10 @@ A multi-tenant SaaS **lead management CRM** — leads, sales pipeline, opportuni
 | Web | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Radix UI primitives (shadcn-style components) · TanStack Query · React Hook Form + Zod · Recharts · dnd-kit · Lucide |
 | API | Node 22 · Express 5 · TypeScript · Zod · Prisma 6 · REST + OpenAPI/Swagger |
 | Data | PostgreSQL 16 (shared database, **row-level security**, composite tenant FKs) |
-| Jobs | Redis 7 · BullMQ (scheduler tick every minute, automation executions with retries) |
+| Jobs & coordination | Redis 7 · BullMQ (minute scheduler guarded by a distributed lock, automation executions, email outbox; retries with backoff) · Redis-backed rate limiting shared by all API instances |
 | Tests | Vitest + Supertest (API, real PostgreSQL) · Vitest + Testing Library (web) · Playwright (e2e) |
+
+> Production: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (what is verified and what is still open) · [DEPLOYMENT.md](DEPLOYMENT.md) · [docs/BACKUP_RECOVERY.md](docs/BACKUP_RECOVERY.md) · [docs/RUNBOOK.md](docs/RUNBOOK.md)
 
 > Documentation index: [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE_DESIGN.md](DATABASE_DESIGN.md) · [API_DOCUMENTATION.md](API_DOCUMENTATION.md) · [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) · [docs/REPORTING_DEFINITIONS.md](docs/REPORTING_DEFINITIONS.md) · [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md)
 
@@ -58,6 +60,10 @@ Billing is an internal system: plans, trials, limits, invoices, grace periods an
 | `npm run db:migrate` / `db:seed` / `db:reset` | Prisma migrations, seed, full reset |
 | `npm run typecheck` | strict TypeScript for every package |
 | `npm run lint` | ESLint (flat config, zero warnings allowed) |
+| `npm run check:config` | Validates the environment against the production rules (`NODE_ENV=production npm run check:config`) |
+| `npm run db:verify` | Checks a live database: RLS enabled+forced everywhere, runtime roles least-privilege, no unfinished migrations |
+| `npm run scan:secrets` | Scans the built browser bundles for secrets (run after `npm run build`) |
+| `scripts/loadtest-db.sh`, `src/scripts/loadtest/*` | Load-test database, bulk data generator, scenario runner and EXPLAIN tool (see PRODUCTION_READINESS.md) |
 | `npm run dev:e2e -w @leadflow/api` | API with rate limits disabled, as used by Playwright |
 
 ## Repository layout

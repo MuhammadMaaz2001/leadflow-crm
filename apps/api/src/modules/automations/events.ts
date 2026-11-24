@@ -25,11 +25,14 @@ export async function emitTrigger(
     const c = (rule.conditions ?? {}) as Conditions;
     if (c.sourceIds?.length && !(lead?.sourceId && c.sourceIds.includes(lead.sourceId))) continue;
     if (c.priorityIds?.length && !(lead?.priorityId && c.priorityIds.includes(lead.priorityId))) continue;
-    const exists = await db().automationExecution.findUnique({ where: { ruleId_eventKey: { ruleId: rule.id, eventKey: key } } });
-    if (exists) continue;
-    const ex = await db().automationExecution.create({
-      data: { organizationId: orgId, ruleId: rule.id, entityType: entity.type, entityId: entity.id, eventKey: key, result: { leadId: entity.leadId } },
+    // INSERT … ON CONFLICT DO NOTHING: safe when two scheduler instances / requests emit the same event concurrently
+    // (a failed INSERT inside a PostgreSQL transaction would abort the whole transaction).
+    const inserted = await db().automationExecution.createMany({
+      data: [{ organizationId: orgId, ruleId: rule.id, entityType: entity.type, entityId: entity.id, eventKey: key, result: { leadId: entity.leadId } }],
+      skipDuplicates: true,
     });
-    afterCommit(() => enqueue('automation.execute', { orgId, executionId: ex.id }, { jobId: `ex-${ex.id}-${Date.now()}` }));
+    if (inserted.count === 0) continue;
+    const ex = await db().automationExecution.findUniqueOrThrow({ where: { ruleId_eventKey: { ruleId: rule.id, eventKey: key } } });
+    afterCommit(() => enqueue('automation.execute', { orgId, executionId: ex.id }, { jobId: `ex-${ex.id}` }));
   }
 }

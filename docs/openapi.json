@@ -1168,6 +1168,48 @@
         }
       }
     },
+    "/api/organizations/{orgId}/logo": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Workspace logo (object storage)",
+        "description": "",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
     "/api/organizations/current/roles-summary": {
       "get": {
         "tags": [
@@ -10989,6 +11031,75 @@
         "description": "",
         "security": [],
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/health/live": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Liveness probe (process is up)",
+        "description": "",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Readiness probe (database + redis)",
+        "description": "",
+        "security": [],
+        "parameters": [
+          {
+            "name": "strict",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK — { data, meta? }"

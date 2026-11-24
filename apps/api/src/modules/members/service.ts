@@ -44,6 +44,9 @@ export async function acceptInvitation(user: SessionUser, token: string) {
   await setOrg(inv.organizationId);
   if (inv.status !== 'PENDING' || inv.expiresAt < new Date()) throw new AppError(410, 'INVITATION_INVALID', 'This invitation is no longer valid. Ask for a new one.');
   if (inv.email.toLowerCase() !== user.email.toLowerCase()) throw forbidden(`This invitation was sent to ${inv.email}. Sign in with that address to accept it.`, 'INVITE_EMAIL_MISMATCH');
+  // atomic single-use claim (rolled back with the transaction if a later step fails)
+  const claimed = await db().invitation.updateMany({ where: { id: inv.id, status: 'PENDING' }, data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedById: user.id } });
+  if (claimed.count !== 1) throw new AppError(410, 'INVITATION_INVALID', 'This invitation is no longer valid. Ask for a new one.');
   const org = await db().organization.findUniqueOrThrow({ where: { id: inv.organizationId } });
   const existing = await db().membership.findFirst({ where: { organizationId: inv.organizationId, userId: user.id } });
   if (!existing) {
@@ -54,7 +57,6 @@ export async function acceptInvitation(user: SessionUser, token: string) {
   } else if (existing.status === 'DEACTIVATED') {
     await db().membership.update({ where: { id: existing.id }, data: { status: 'ACTIVE', roleId: inv.roleId, deactivatedAt: null } });
   }
-  await db().invitation.update({ where: { id: inv.id }, data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedById: user.id } });
   await db().auditLog.create({ data: { organizationId: inv.organizationId, actorId: user.id, actorEmail: user.email, action: 'member.joined', entityType: 'invitation', entityId: inv.id, metadata: {} } });
   const { notify, managerIds } = await import('../notifications/service');
   await notify({ userIds: await managerIds(), type: 'SYSTEM', title: `${user.name} joined ${org.name}`, link: '/team', exceptUserId: user.id });

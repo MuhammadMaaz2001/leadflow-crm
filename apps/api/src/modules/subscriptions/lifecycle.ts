@@ -1,6 +1,7 @@
 import type { Prisma } from '@leadflow/database';
 import { addDays } from 'date-fns';
 import { db } from '../../db';
+import { AppError } from '../../lib/errors';
 import { notify } from '../notifications/service';
 import { GRACE_PERIOD_DAYS, nextInvoiceNumber, periodEnd, recordSubscriptionEvent } from './service';
 
@@ -63,7 +64,9 @@ export async function runSubscriptionLifecycle(orgId: string, now = new Date()) 
 export async function applyPayment(invoiceId: string, opts: { actorId: string | null; reference: string; method?: string; note?: string }, client: Prisma.TransactionClient = db()) {
   const inv = await client.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
   const now = new Date();
-  await client.invoice.update({ where: { id: inv.id }, data: { status: 'PAID', paidAt: now, paymentMethod: opts.method ?? 'MANUAL_DEV', paymentReference: opts.reference, recordedById: opts.actorId, failedAt: null, failureReason: null } });
+  // Atomic claim: of two concurrent payments for one invoice exactly one wins, so the subscription period is extended once.
+  const claimed = await client.invoice.updateMany({ where: { id: inv.id, status: { in: ['OPEN', 'FAILED'] } }, data: { status: 'PAID', paidAt: now, paymentMethod: opts.method ?? 'MANUAL_DEV', paymentReference: opts.reference, recordedById: opts.actorId, failedAt: null, failureReason: null } });
+  if (claimed.count !== 1) throw new AppError(409, 'ALREADY_PAID', inv.status === 'PAID' ? 'This invoice is already paid.' : `This invoice is ${inv.status.toLowerCase()} and cannot be paid.`);
   if (inv.planId && inv.periodStart && inv.periodEnd) {
     const sub = await client.subscription.findUnique({ where: { organizationId: inv.organizationId }, include: { plan: true } });
     const plan = await client.subscriptionPlan.findUniqueOrThrow({ where: { id: inv.planId } });

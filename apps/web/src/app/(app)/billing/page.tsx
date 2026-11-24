@@ -43,6 +43,9 @@ function InvoiceDialog({ id, onClose, canPay }: { id: string | null; onClose: ()
           <dl className="divide-y divide-line rounded-lg border border-line px-3 text-[13px]">
             {[['Issued', fmtDate(i.issuedAt)], ['Due', fmtDate(i.dueAt)], ['Period', i.periodStart ? `${fmtDate(i.periodStart)} – ${fmtDate(i.periodEnd)}` : '—'], ...(i.paidAt ? [['Paid', fmtDateTime(i.paidAt)], ['Method', i.paymentMethod === 'MANUAL_DEV' ? 'Manually recorded (development)' : i.paymentMethod === 'MANUAL_PLATFORM' ? 'Manually recorded by platform admin' : i.paymentMethod ?? '—'], ['Reference', i.paymentReference ?? '—']] : []), ...(i.failureReason ? [['Failure', i.failureReason]] : [])].map(([l, v]) => <div key={l} className="flex justify-between py-2"><dt className="text-ink-3">{l}</dt><dd className="text-right">{v}</dd></div>)}
           </dl>
+          {!canPay && (i.status === 'OPEN' || i.status === 'FAILED') && (
+            <div className="rounded-lg border border-line bg-subtle p-3"><p className="flex items-center gap-1.5 text-xs font-semibold"><Info className="size-3.5" />Awaiting payment</p><p className="mt-1 text-xs text-ink-2">Online card payment is not available yet. Pay this invoice using the instructions from LeadFlow billing; the plan is activated as soon as the payment is confirmed. You do not need to do anything else in the app.</p></div>
+          )}
           {canPay && (i.status === 'OPEN' || i.status === 'FAILED') && (
             <div className="rounded-lg border border-warn/30 bg-warn-soft p-3"><p className="flex items-center gap-1.5 text-xs font-semibold text-warn"><Info className="size-3.5" />Development / manual payment</p><p className="mt-1 text-xs text-warn/90">No payment processor is connected. If this invoice was settled outside LeadFlow (bank transfer, cash…), enter the reference. This is recorded under your name in the audit log.</p><div className="mt-2"><FormError message={error} /><Field label="Payment reference" required><Input aria-label="Payment reference" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. Bank transfer #4821" /></Field></div></div>
           )}
@@ -53,7 +56,7 @@ function InvoiceDialog({ id, onClose, canPay }: { id: string | null; onClose: ()
 }
 
 export default function BillingPage() {
-  const { can } = useOrg();
+  const { can, org } = useOrg();
   const confirm = useConfirm();
   const q = useT(['billing'], () => api.get<Billing>('/billing'));
   const [interval, setIntervalV] = React.useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
@@ -133,7 +136,7 @@ export default function BillingPage() {
         </Card></TabsContent>
         <TabsContent value="history" className="pt-4"><Card className="p-4"><ol className="space-y-4 border-l border-line pl-5">{d.events.map((e) => <li key={e.id} className="relative"><span className="absolute -left-[26px] top-1 size-2.5 rounded-full bg-accent" /><p className="text-[13px] font-medium">{titleCase(e.type)}{e.fromPlanCode && e.toPlanCode && e.fromPlanCode !== e.toPlanCode ? ` · ${e.fromPlanCode} → ${e.toPlanCode}` : e.toPlanCode ? ` · ${e.toPlanCode}` : ''}</p><p className="text-xs text-ink-3">{fmtDateTime(e.createdAt)}{e.note ? ` · ${e.note}` : ''}</p></li>)}</ol></Card></TabsContent>
       </Tabs>
-      <InvoiceDialog id={invoiceId} onClose={() => setInvoiceId(null)} canPay={manage} />
+      <InvoiceDialog id={invoiceId} onClose={() => setInvoiceId(null)} canPay={manage && !!org?.billing?.selfServiceManualPayment} />
     </>
   );
 }

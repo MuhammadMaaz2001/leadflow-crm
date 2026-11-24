@@ -1,0 +1,36 @@
+{
+  "label": "l250k",
+  "counts": {
+    "leads": 250000,
+    "opportunities": 17780,
+    "follow_ups": 13329,
+    "tasks": 6555,
+    "activities": 199410,
+    "notifications": 11500
+  },
+  "when": "2026-11-24T14:25:35.935Z",
+  "api": "http://localhost:4101",
+  "rows": [
+    {
+      "scenario": "MIXED-100-users",
+      "connections": 50,
+      "durationS": 30.08,
+      "reqPerSec": 63,
+      "p50": 399,
+      "p90": 1845,
+      "p97_5": 3574,
+      "p99": 4038,
+      "max": 4834,
+      "total": 1883,
+      "ok2xx": 1883,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 1833,
+        "201": 50
+      },
+      "errorRatePct": 0
+    }
+  ]
+}

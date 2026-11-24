@@ -8,6 +8,8 @@ import { config } from './config';
 import { AppError, forbidden, paymentRequired, unauthorized } from './lib/errors';
 import { db, prisma, withContext } from './db';
 import { sha256 } from './lib/crypto';
+import { reportError } from './lib/error-report';
+import { bindRequestPrincipal } from './lib/logger';
 
 export type PlatformRoleName = 'SUPER_ADMIN' | 'SUPPORT_ADMIN' | 'BILLING_ADMIN';
 
@@ -34,6 +36,10 @@ export class Reply {
 }
 export class FileReply {
   constructor(public filename: string, public contentType: string, public buffer: Buffer) {}
+}
+/** Binary response served inline (e.g. an image) with caller-chosen headers. */
+export class RawReply {
+  constructor(public contentType: string, public buffer: Buffer, public headers: Record<string, string> = {}) {}
 }
 export const created = <T>(data: T) => new Reply(201, { data });
 export const paged = <T>(data: T, meta: unknown) => new Reply(200, { data, meta });
@@ -135,6 +141,12 @@ export function validationError(err: ZodError) {
 }
 
 function send(res: Response, out: unknown) {
+  if (out instanceof RawReply) {
+    for (const [k, v] of Object.entries(out.headers)) res.setHeader(k, v);
+    res.setHeader('Content-Type', out.contentType);
+    res.status(200).end(out.buffer);
+    return;
+  }
   if (out instanceof FileReply) {
     res.setHeader('Content-Type', out.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
@@ -174,6 +186,7 @@ export function route<B = unknown, Q = unknown>(opts: RouteOptions<B, Q>, handle
           const orgHeader = req.header('x-org-id');
           out = await withContext({ userId: user.id, orgId: orgHeader && UUID_RE.test(orgHeader) ? orgHeader : null }, async () => {
             const ctx = await buildCtx(req, user, opts);
+            bindRequestPrincipal({ userId: user.id, orgId: ctx.orgId });
             if (opts.perm) {
               const need = Array.isArray(opts.perm) ? opts.perm : [opts.perm];
               if (!need.some((p) => ctx.can(p))) throw forbidden(`Missing permission: ${need.join(' or ')}`, 'MISSING_PERMISSION');
@@ -249,8 +262,9 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
     res.status(400).json({ error: { code: 'BAD_JSON', message: 'Malformed JSON body' } });
     return;
   }
-  if (!config.isTest) console.error(`[error] ${req.method} ${req.path}`, err);
-  res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on our side' } });
+  const requestId = (req as Request & { id?: string }).id;
+  reportError(err, `${req.method} ${req.route?.path ?? 'unmatched'}`, { requestId });
+  res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on our side', requestId } });
 }
 
 export { z };

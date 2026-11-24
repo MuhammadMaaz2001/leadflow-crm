@@ -16,3 +16,5 @@ next-env.d.ts
 apps/web/AGENTS.md
 apps/web/CLAUDE.md
 dump.rdb
+deploy/.env*
+.env.production

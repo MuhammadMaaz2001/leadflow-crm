@@ -1,5 +1,7 @@
 # Product audit — LeadFlow CRM
 
+> **Update 2026-11-24 (production-readiness phase):** items 2, 7 (single-instance scheduler/worker), 8 and 9 below and several security rows were addressed afterwards — see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the current state of every open risk. Status of the §5 list: (1) email/payment providers → provider abstractions + SMTP/S3/manual-billing hardening done, *real* provider verification still open; (2) `npm audit` → **0 vulnerabilities** (overrides documented); (3) RLS vs trigram search → unchanged, measured (search cost grows with workspace size); (8) in-memory rate limits → **Redis-backed, shared across instances**; scheduler/worker single-instance limitation → **distributed lock + idempotent jobs**; (9) script-src CSP → **nonce-based CSP implemented**.
+
 Audit date: 2026-11-24. Scope: UI/UX, functional behaviour, security, database, SaaS/role behaviour and a final verification pass, performed **without changing the architecture** (same monorepo, same request pipeline, same tenant-isolation model). Everything listed as "verified" was executed in this environment; items that were not verified are listed under [Not verified / accepted risks](#not-verified--accepted-risks).
 
 > **This document does not declare the product production-ready.** It records what was tested, what was fixed and what is still open. See the last section before deploying.

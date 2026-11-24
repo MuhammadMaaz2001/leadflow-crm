@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { connection } from 'next/server';
 import { Providers } from '@/lib/session';
 
 export const metadata: Metadata = {
@@ -9,7 +10,9 @@ export const metadata: Metadata = {
 };
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#f7f7f8' };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// Rendered per request: the Content-Security-Policy nonce (src/proxy.ts) can only be applied to server-rendered HTML.
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
   return (
     <html lang="en">
       <body><Providers>{children}</Providers></body>

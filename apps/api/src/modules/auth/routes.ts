@@ -8,6 +8,7 @@ import { db, prisma } from '../../db';
 import { AppError, badRequest, conflict, forbidden, notFound, unauthorized } from '../../lib/errors';
 import { hashPassword, randomToken, sha256, verifyPassword } from '../../lib/crypto';
 import { sendEmail } from '../../lib/email';
+import { presentLogo } from '../../lib/storage';
 import { defineRoutes, resolveSession } from '../../http';
 
 export const auth = defineRoutes('Authentication', '/auth');
@@ -21,6 +22,7 @@ function setSessionCookie(res: Response, token: string) {
 
 async function issueVerification(userId: string, email: string) {
   const token = randomToken();
+  await db().authToken.updateMany({ where: { userId, type: 'EMAIL_VERIFY', usedAt: null }, data: { usedAt: new Date() } }); // only the newest link works
   await db().authToken.create({ data: { userId, type: 'EMAIL_VERIFY', tokenHash: sha256(token), expiresAt: new Date(Date.now() + 86_400_000) } });
   const link = `${config.webUrl}/verify-email?token=${token}`;
   await sendEmail({ to: email, subject: 'Verify your LeadFlow account', body: 'Welcome to LeadFlow! Confirm your email address to activate your account.', link });
@@ -36,7 +38,7 @@ export async function workspacesFor(userId: string) {
   return rows.map((m) => ({
     membershipId: m.id, status: m.status,
     organization: {
-      id: m.organization.id, name: m.organization.name, slug: m.organization.slug, logoData: m.organization.logoData, status: m.organization.status,
+      id: m.organization.id, name: m.organization.name, slug: m.organization.slug, logoData: presentLogo(m.organization.id, m.organization.logoData), status: m.organization.status,
       onboardingCompleted: !!m.organization.onboardingCompletedAt, currency: m.organization.currency, timezone: m.organization.timezone,
     },
     role: { id: m.role.id, name: m.role.name, key: m.role.systemKey, permissions: m.role.permissions },
@@ -73,7 +75,7 @@ auth.post('/register', { auth: 'public', body: registerSchema.extend({ inviteTok
 auth.post('/verify-email', { auth: 'public', body: z.object({ token: z.string().min(10) }), summary: 'Confirm an email address' }, async ({ body }) => {
   const t = await db().authToken.findUnique({ where: { tokenHash: sha256(body.token) } });
   if (!t || t.type !== 'EMAIL_VERIFY' || t.usedAt || t.expiresAt < new Date()) throw badRequest('This verification link is invalid or has expired.', undefined, 'INVALID_TOKEN');
-  await db().authToken.update({ where: { id: t.id }, data: { usedAt: new Date() } });
+  if ((await db().authToken.updateMany({ where: { id: t.id, usedAt: null }, data: { usedAt: new Date() } })).count !== 1) throw badRequest('This verification link is invalid or has expired.', undefined, 'INVALID_TOKEN');
   await db().user.update({ where: { id: t.userId }, data: { emailVerifiedAt: new Date() } });
   return { verified: true };
 });
@@ -120,6 +122,7 @@ auth.post('/forgot-password', { auth: 'public', body: forgotSchema, summary: 'Re
   let link: string | null = null;
   if (u && u.isActive) {
     const token = randomToken();
+    await db().authToken.updateMany({ where: { userId: u.id, type: 'PASSWORD_RESET', usedAt: null }, data: { usedAt: new Date() } }); // only the newest link works
     await db().authToken.create({ data: { userId: u.id, type: 'PASSWORD_RESET', tokenHash: sha256(token), expiresAt: new Date(Date.now() + 3_600_000) } });
     link = `${config.webUrl}/reset-password?token=${token}`;
     await sendEmail({ to: u.email, subject: 'Reset your LeadFlow password', body: 'Use the link below to choose a new password. It expires in one hour.', link });
@@ -131,7 +134,8 @@ auth.post('/forgot-password', { auth: 'public', body: forgotSchema, summary: 'Re
 auth.post('/reset-password', { auth: 'public', body: resetSchema, summary: 'Set a new password using a reset token' }, async ({ body }) => {
   const t = await db().authToken.findUnique({ where: { tokenHash: sha256(body.token) } });
   if (!t || t.type !== 'PASSWORD_RESET' || t.usedAt || t.expiresAt < new Date()) throw badRequest('This reset link is invalid or has expired.', undefined, 'INVALID_TOKEN');
-  await db().authToken.update({ where: { id: t.id }, data: { usedAt: new Date() } });
+  // atomic single-use claim: of two concurrent requests with the same token exactly one gets count = 1
+  if ((await db().authToken.updateMany({ where: { id: t.id, usedAt: null }, data: { usedAt: new Date() } })).count !== 1) throw badRequest('This reset link is invalid or has expired.', undefined, 'INVALID_TOKEN');
   await db().user.update({ where: { id: t.userId }, data: { passwordHash: await hashPassword(body.password), failedLoginCount: 0, lockedUntil: null, emailVerifiedAt: new Date() } });
   await db().session.updateMany({ where: { userId: t.userId, revokedAt: null }, data: { revokedAt: new Date() } });
   return { reset: true };

@@ -177,3 +177,19 @@ describe('query efficiency at volume', () => {
     await timed('follow-up summary', () => org.get('/followups/summary'), 1000);
   });
 });
+
+describe('database security verification tool (db:verify)', () => {
+  it('passes on the migrated schema and flags a tenant table without row level security or a bypassing role', async () => {
+    const { verifyDatabaseSecurity } = await import('../src/lib/db-verify');
+    expect(await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow_app', platformRole: 'leadflow_platform' })).toEqual([]);
+    await ownerPrisma.$executeRawUnsafe(`CREATE TABLE zz_unprotected (id int, organization_id uuid)`);
+    try {
+      const p = await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow_app', platformRole: 'leadflow_platform' });
+      expect(p.join('\n')).toMatch(/table zz_unprotected: row level security is not enabled/);
+      expect(p.join('\n')).toMatch(/zz_unprotected: no row level security policy/);
+      // the owner role itself is a superuser in dev: verifying it as the "app" role must fail
+      const bad = await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow', platformRole: 'leadflow_platform' });
+      expect(bad.join('\n')).toMatch(/superuser|BYPASSRLS/);
+    } finally { await ownerPrisma.$executeRawUnsafe(`DROP TABLE zz_unprotected`); }
+  });
+});

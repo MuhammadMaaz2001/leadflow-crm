@@ -39,5 +39,10 @@ export function openApiDocument() {
 }
 
 export function swaggerHandlers() {
-  return [...swaggerUi.serve, swaggerUi.setup(undefined, { swaggerOptions: { url: '/api/openapi.json' }, customSiteTitle: 'LeadFlow API' })];
+  // Swagger UI needs inline styles/scripts; relax the API's default-deny CSP for this one path only.
+  const csp = (_req: unknown, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'");
+    next();
+  };
+  return [csp, ...swaggerUi.serve, swaggerUi.setup(undefined, { swaggerOptions: { url: '/api/openapi.json' }, customSiteTitle: 'LeadFlow API' })];
 }

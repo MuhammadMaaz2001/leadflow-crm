@@ -22,6 +22,9 @@ export async function executeAutomation(orgId: string, executionId: string) {
   let failure: Error | null = null;
   try {
     await withContext({ orgId }, async () => {
+      // Exactly-once effects: the row lock serialises concurrent runners (stalled-job redelivery, duplicate enqueue,
+      // manual retry); the loser waits for the winner's commit and then sees SUCCESS/SKIPPED below.
+      await db().$queryRaw`SELECT id FROM automation_executions WHERE id = ${executionId}::uuid FOR UPDATE`;
       const ex = await db().automationExecution.findFirst({ where: { id: executionId, organizationId: orgId }, include: { rule: true } });
       if (!ex || ex.status === 'SUCCESS' || ex.status === 'SKIPPED') return;
       await db().automationExecution.update({ where: { id: ex.id }, data: { attempts: { increment: 1 }, status: 'PENDING', error: null } });

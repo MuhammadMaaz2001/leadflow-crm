@@ -4,6 +4,7 @@ import { AppError, forbidden, notFound } from '../../lib/errors';
 import { audit } from '../../lib/audit';
 import { tabular } from '../leads/transfer';
 import { buildDashboard } from './dashboard';
+import { cachedForLarge, hashKey } from '../../lib/cache';
 import { buildFilterCtx, reportFilterQuery } from './filters';
 import { REPORTS, runReport, type ReportKey } from './reports';
 
@@ -11,7 +12,8 @@ export const reports = defineRoutes('Reports & Analytics', '');
 
 reports.get('/dashboard', { query: reportFilterQuery, summary: 'Dashboard KPIs, charts and attention lists (permission-aware)' }, async ({ ctx, query }) => {
   const f = buildFilterCtx(ctx, query, ctx.can('dashboard.view_all'));
-  return buildDashboard(ctx, f);
+  // very large workspaces: ≤ 20 s old (key includes the data scope: own-data callers are keyed per user)
+  return cachedForLarge(ctx.orgId, `dashboard:${f.restricted ? ctx.userId : 'all'}:${hashKey({ query, restricted: f.restricted, assignee: f.assigneeId })}`, () => buildDashboard(ctx, f));
 });
 
 reports.get('/reports', { perm: 'reports.view', summary: 'Report catalogue' }, async () => REPORTS);
@@ -20,7 +22,10 @@ reports.get('/reports/:key', { perm: 'reports.view', query: reportFilterQuery, s
   const def = REPORTS.find((r) => r.key === params.key);
   if (!def) throw notFound('Report');
   const f = buildFilterCtx(ctx, query, ctx.can('reports.view_all'));
-  const result = await runReport(def.key as ReportKey, ctx, f);
+  // JSON views of large workspaces are cached for a few seconds; exports (csv/xlsx) are always computed fresh
+  const result = query.format === 'json'
+    ? await cachedForLarge(ctx.orgId, `report:${def.key}:${f.restricted ? ctx.userId : 'all'}:${hashKey({ query, restricted: f.restricted, assignee: f.assigneeId })}`, () => runReport(def.key as ReportKey, ctx, f))
+    : await runReport(def.key as ReportKey, ctx, f);
   const payload = { ...result, filters: { from: f.range.from, to: f.range.to, range: f.range.preset, assigneeId: f.assigneeId, sourceId: f.sourceId, pipelineId: f.pipelineId, restricted: f.restricted, timezone: f.tz, currency: ctx.org.currency } };
   if (query.format === 'json') return payload;
   if (!ctx.can('reports.export')) throw forbidden('Missing permission: reports.export', 'MISSING_PERMISSION');

@@ -1,5 +1,6 @@
 import { activityLogSchema, assignSchema, bulkSchema, fullName, leadSchema, leadUpdateSchema, mergeSchema } from '@leadflow/shared';
 import { z } from 'zod';
+import { cachedForLarge, hashKey } from '../../lib/cache';
 import { db } from '../../db';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { Reply, created, defineRoutes, paged } from '../../http';
@@ -21,7 +22,8 @@ leads.get('/', { query: leadListQuery, summary: 'List leads (search, filters, so
   const where = buildLeadWhere(ctx, query);
   const orderBy = query.sort === 'name' ? [{ firstName: query.order }, { lastName: query.order }] : query.sort === 'company' ? [{ companyName: query.order }] : [{ [query.sort]: query.order }];
   const [total, rows] = await Promise.all([
-    db().lead.count({ where }),
+    // exact for normal workspaces; ≤ 20 s old for very large ones (see lib/cache.ts) — the rows themselves are always live
+    cachedForLarge(ctx.orgId, `lead-total:${hashKey(where)}`, () => db().lead.count({ where })),
     db().lead.findMany({ where, include: leadInclude, orderBy: orderBy as never, ...paginate(query) }),
   ]);
   return paged(await shapeLeads(ctx, rows), pageMeta(query, total));

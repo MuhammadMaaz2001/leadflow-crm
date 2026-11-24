@@ -1,0 +1,156 @@
+{
+  "label": "l250k",
+  "counts": {
+    "leads": 250000,
+    "opportunities": 17780,
+    "follow_ups": 13329,
+    "tasks": 6555,
+    "activities": 199410,
+    "notifications": 11500
+  },
+  "when": "2026-11-24T14:24:45.500Z",
+  "api": "http://localhost:4100",
+  "rows": [
+    {
+      "scenario": "leads-list",
+      "connections": 20,
+      "durationS": 15.01,
+      "reqPerSec": 264,
+      "p50": 72,
+      "p90": 91,
+      "p97_5": 102,
+      "p99": 112,
+      "max": 328,
+      "total": 3959,
+      "ok2xx": 3959,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 3959
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-list-deep-page",
+      "connections": 20,
+      "durationS": 15.05,
+      "reqPerSec": 43,
+      "p50": 464,
+      "p90": 534,
+      "p97_5": 568,
+      "p99": 658,
+      "max": 695,
+      "total": 648,
+      "ok2xx": 648,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 648
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-search",
+      "connections": 20,
+      "durationS": 15.08,
+      "reqPerSec": 40,
+      "p50": 396,
+      "p90": 1109,
+      "p97_5": 1589,
+      "p99": 1663,
+      "max": 2484,
+      "total": 597,
+      "ok2xx": 597,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 597
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "leads-filter-sort",
+      "connections": 20,
+      "durationS": 15.06,
+      "reqPerSec": 84,
+      "p50": 172,
+      "p90": 577,
+      "p97_5": 781,
+      "p99": 885,
+      "max": 2112,
+      "total": 1264,
+      "ok2xx": 1264,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 1264
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "dashboard",
+      "connections": 20,
+      "durationS": 15.02,
+      "reqPerSec": 513,
+      "p50": 35,
+      "p90": 47,
+      "p97_5": 56,
+      "p99": 67,
+      "max": 1167,
+      "total": 7701,
+      "ok2xx": 7701,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 7701
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "reports",
+      "connections": 20,
+      "durationS": 15,
+      "reqPerSec": 615,
+      "p50": 30,
+      "p90": 38,
+      "p97_5": 46,
+      "p99": 72,
+      "max": 352,
+      "total": 9222,
+      "ok2xx": 9222,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 9222
+      },
+      "errorRatePct": 0
+    },
+    {
+      "scenario": "MIXED-100-users",
+      "connections": 100,
+      "durationS": 30.05,
+      "reqPerSec": 132,
+      "p50": 385,
+      "p90": 1850,
+      "p97_5": 3252,
+      "p99": 3735,
+      "max": 4587,
+      "total": 3970,
+      "ok2xx": 3970,
+      "non2xx": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 3870,
+        "201": 100
+      },
+      "errorRatePct": 0
+    }
+  ]
+}

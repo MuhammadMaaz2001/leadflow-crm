@@ -47,7 +47,7 @@ The same `route()` declarations feed the OpenAPI document (`/api/openapi.json`, 
 | Database | `organization_id` on every tenant table, **composite foreign keys `(id, organization_id)`** so a row can never reference another tenant's row, **RLS `FORCE`d on all tenant tables**, runtime role without BYPASSRLS. |
 | Platform | Separate DB role `leadflow_platform` (BYPASSRLS) whose **table grants exclude leads, opportunities, follow-ups, activities, tasks, notifications …**. It reads accounts, plans, billing and the aggregate view `platform_org_overview` only. Platform routes live under `/api/platform` and require `users.platform_role`; role matrix: SUPER (all), SUPPORT (suspend/activate, users), BILLING (plans, subscriptions, invoices). |
 | History | The app role has no UPDATE/DELETE on `audit_logs`, `lead_assignments`, `stage_history`, `follow_up_events`, `subscription_events`, `activities` (only `activities.lead_id` for merges). |
-| Secrets | Passwords bcrypt-hashed; session/reset/verify/invite tokens stored as SHA-256 hashes; lockout after 5 failed logins; DB role passwords come from the environment. |
+| Secrets | Passwords bcrypt-hashed (native bcrypt, cost 10, off the event loop); session/reset/verify/invite tokens stored as SHA-256 hashes; lockout after 5 failed logins; DB role passwords come from the environment. |
 
 Tested in `apps/api/test/isolation.test.ts`: IDOR on every entity, header spoofing, cross-tenant foreign keys, raw unscoped queries under RLS, platform role denied on CRM tables, deactivated members, per-role permissions.
 
@@ -58,10 +58,36 @@ Tested in `apps/api/test/isolation.test.ts`: IDOR on every entity, header spoofi
 * **Activities** are an append-only timeline written by the same services that make the change.
 * **Assignments** are append-only (`lead_assignments` with method MANUAL / BULK / ROUND_ROBIN / RULE / IMPORT / MERGE).
 
+## Distributed runtime (production)
+```
+Web (N)  ──/api rewrite──▶  API (N, stateless)  ──▶ PostgreSQL (RLS)         Worker (N) ──▶ PostgreSQL, Redis, SMTP
+                              │ rate limits, locks ──▶ Redis ◀── BullMQ queue ──┘
+                              └ logos ──▶ S3-compatible bucket (private)
+```
+Nothing that matters is held in process memory, so every tier scales horizontally:
+
+| Concern | Mechanism | File |
+|---|---|---|
+| Rate limiting | Fixed window counters in Redis, one atomic Lua script per hit → one limit across all API instances (also per-account login and password-reset limits). If Redis is unreachable a 5-second circuit breaker switches to a per-process window instead of failing requests. | `lib/ratelimit.ts` |
+| Scheduler single-flight | `scheduler.tick` runs every minute on whichever worker picks it up; inside it a Redis **lease lock** (`SET NX PX`, renewed by a timer, released with compare-and-delete) lets one instance run at a time. A crashed holder stops renewing and the lease expires. | `lib/lock.ts`, `modules/automations/scheduler.ts` |
+| Idempotency (correct even if the lock is lost) | Reminders: notification `dedupeKey` unique + `createMany skipDuplicates`. Automation events: unique `(rule, eventKey)` inserted with `skipDuplicates`. Execution: `SELECT … FOR UPDATE` on the execution row + status check ⇒ exactly-once effects when a job is delivered twice. Invoice payment: atomic status claim. Single-use tokens (reset, verify, invitation): atomic claim. Emails: outbox row, job id = row id. | `engine.ts`, `events.ts`, `lifecycle.ts`, `auth/routes.ts` |
+| Retries | Every job: 5 attempts, exponential backoff from 5 s; stalled jobs (worker died) re-queued, `maxStalledCount` 2; final failures kept 14 days and reported to the error hook. | `lib/queue.ts`, `jobs.ts` |
+| Lost jobs (Redis flushed, enqueue failed after commit) | The scheduler re-queues automation executions still `PENDING` after 5 min and unsent outbox emails. | `scheduler.ts`, `lib/email.ts` |
+| Graceful shutdown | SIGTERM/SIGINT: readiness → 503, HTTP server drains, worker stops taking jobs and waits for running ones, then queue/Redis/Prisma close; bounded by `SHUTDOWN_TIMEOUT_MS`. | `lib/shutdown.ts`, `server.ts`, `jobs.ts` |
+| Health | `/api/health/live`, `/api/health/ready` (PostgreSQL required, Redis → degraded), worker heartbeats + scheduler last-run in Redis, surfaced at `/platform/health`; worker has an optional HTTP health port. | `lib/health.ts` |
+| Observability | JSON logs with request id propagated through `AsyncLocalStorage`, secret redaction, one access-log line per request, slow-query log (parameterised SQL only), error-reporter hook. | `lib/logger.ts`, `lib/request.ts`, `lib/error-report.ts` |
+| Start-up safety | Production configuration validation (`config-validate.ts`) and a database-role probe: the API refuses to start if its DB user is a superuser/BYPASSRLS. `npm run db:verify` re-checks RLS, roles and grants on any live database. | `config-validate.ts`, `lib/db-verify.ts` |
+
+### Providers behind interfaces (nothing is pretended)
+* **Email** (`lib/email.ts`): transactional outbox → `EmailProvider` (`dev` mailbox, `smtp`, `none`). Statuses are real: `QUEUED → SENT | FAILED (retry) | UNDELIVERABLE`. Delivered one-time links are scrubbed from the row outside development.
+* **Storage** (`lib/storage.ts`): inline PostgreSQL (dev) or any S3-compatible bucket; images are validated by content first; the bucket stays private and objects are served by an authenticated, workspace-scoped route.
+* **Payments** (`modules/subscriptions/payment-provider.ts`): `PaymentProvider` contract plus a single defensive settlement routine (signature-verified events only, `(provider,eventId)` exactly-once, amount/currency must match, no fabricated success). No adapter exists; tenants cannot mark their own invoices paid outside development.
+
 ## Background processing (BullMQ)
-* `scheduler.tick` (repeatable, every minute) iterates workspaces (`app_list_active_orgs()` returns ids only) and, **inside each tenant's RLS context**: sends follow-up due/overdue reminders, task deadline reminders, scans for "not contacted"/"inactive" leads and overdue follow-ups for automation rules, runs the subscription lifecycle and records usage snapshots. All work is idempotent (notification `dedupe_key`, unique `(rule_id, event_key)` on executions).
-* `automation.execute` runs one execution: actions NOTIFY / CREATE_TASK / SET_PRIORITY; results and errors are logged in `automation_executions`; BullMQ retries 3× with backoff and users can retry from the UI.
-* `JOBS_INLINE=true` runs the same processors in-process (tests/single-process dev).
+* `scheduler.tick` (repeatable, every minute; single-flight through the lease lock) iterates workspaces (`app_list_active_orgs()` returns ids only) and, **inside each tenant's RLS context**: sends follow-up due/overdue reminders, task deadline reminders, scans for uncontacted / inactive leads and overdue follow-ups (automation triggers), runs the subscription lifecycle (renewal invoice → grace → expiry), records the daily usage snapshot — then sweeps the email outbox.
+* `automation.execute` runs one execution (NOTIFY / CREATE_TASK / SET_PRIORITY); results and errors are logged in `automation_executions`; users can retry failed executions from the UI.
+* `email.send` delivers one outbox row through the configured provider.
+* `JOBS_INLINE=true` runs the same processors in-process (tests/single-process dev); rejected in production.
 
 ## Subscriptions & billing
 `free` / `starter` / `professional` plans define lead cap, seat cap and feature flags (import/export, automations, custom pipelines & fields, advanced reports, custom roles, rule assignment). Limits are enforced in services (`assertLeadCapacity`, `assertSeatCapacity`, `requireFeature`). Lifecycle: trial → (unpaid) Free · paid period end → renewal invoice + `PAST_DUE` + 7-day grace → `EXPIRED` (read-only) → payment recorded reactivates. Workspace suspension by platform admins blocks all tenant routes.
@@ -77,5 +103,6 @@ Tested in `apps/api/test/isolation.test.ts`: IDOR on every entity, header spoofi
 | Express backend (not Next route handlers) | Keeps domain logic, jobs and tenant middleware independent of the UI framework; independently deployable. |
 | One transaction per request with RLS context | Strong isolation guarantees and atomic multi-step business operations with little code. |
 | Prisma + hand-written SQL migrations for RLS | Typed access, while policies/roles/constraints stay explicit in reviewable SQL. |
-| Dev mailbox instead of SMTP | No external credentials required; swap `lib/email.ts` for a provider. |
+| Email outbox + provider interface | Delivery state is explicit and retried; the dev mailbox keeps development credential-free; production uses SMTP or fails visibly. |
+| Redis for coordination only | Rate limits, locks and queues are rebuildable; PostgreSQL stays the single system of record. |
 | Manual payment recording | No processor is in scope; nothing is ever shown as paid unless a person records it. |

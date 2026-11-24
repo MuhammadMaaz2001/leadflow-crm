@@ -20,6 +20,8 @@ export default defineConfig({
       APP_DATABASE_URL: swap(process.env.APP_DATABASE_URL ?? 'postgresql://leadflow_app:leadflow_app_dev@localhost:5432/leadflow', TEST_DB),
       PLATFORM_DATABASE_URL: swap(process.env.PLATFORM_DATABASE_URL ?? 'postgresql://leadflow_platform:leadflow_platform_dev@localhost:5432/leadflow', TEST_DB),
       JOBS_INLINE: 'true',
+      QUEUE_NAME: 'leadflow-test',
+      JOB_BACKOFF_MS: '100',
     },
   },
 });

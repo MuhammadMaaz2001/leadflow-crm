@@ -1,0 +1,37 @@
+{
+  "label": "l250k",
+  "orgId": "feab69b3-b49c-4c11-a727-d951ca07265b",
+  "ownerEmail": "owner-l250k@load.test",
+  "managerEmail": "manager-l250k@load.test",
+  "agentEmails": [
+    "agent1-l250k@load.test",
+    "agent2-l250k@load.test",
+    "agent3-l250k@load.test",
+    "agent4-l250k@load.test",
+    "agent5-l250k@load.test",
+    "agent6-l250k@load.test",
+    "agent7-l250k@load.test",
+    "agent8-l250k@load.test",
+    "agent9-l250k@load.test",
+    "agent10-l250k@load.test",
+    "agent11-l250k@load.test",
+    "agent12-l250k@load.test",
+    "agent13-l250k@load.test",
+    "agent14-l250k@load.test",
+    "agent15-l250k@load.test",
+    "agent16-l250k@load.test",
+    "agent17-l250k@load.test",
+    "agent18-l250k@load.test",
+    "agent19-l250k@load.test",
+    "agent20-l250k@load.test"
+  ],
+  "password": "Load#Pass2026",
+  "counts": {
+    "leads": 250000,
+    "opportunities": 17780,
+    "follow_ups": 13329,
+    "tasks": 6555,
+    "activities": 199410,
+    "notifications": 11500
+  }
+}
