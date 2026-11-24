@@ -12,7 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed": "tsx src/scripts/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:e2e": "JOBS_INLINE=true NODE_ENV=development node dist/server.js",
+    "docs:api": "tsx src/scripts/gen-api-docs.ts"
   },
   "dependencies": {
     "@leadflow/database": "*",

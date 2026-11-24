@@ -110,8 +110,8 @@ export default function BillingPage() {
               <p className="mt-1 text-xs text-ink-2">{p.description}</p>
               <p className="tnum mt-4 text-3xl font-semibold">{p.code === 'free' ? 'Free' : money(price, p.currency)}{p.code !== 'free' && <span className="text-sm font-normal text-ink-3"> / {interval === 'YEARLY' ? 'yr' : 'mo'}</span>}</p>
               <ul className="mt-4 flex-1 space-y-2 text-[13px]">
-                <li className="flex items-center gap-2"><Check className="size-4 text-ok" />Up to <b>{num(p.maxLeads)}</b> leads</li>
-                <li className="flex items-center gap-2"><Check className="size-4 text-ok" /><b>{p.maxSeats}</b> user seats</li>
+                <li className="flex items-center gap-2"><Check className="size-4 text-ok" /><span>Up to <b>{num(p.maxLeads)}</b> leads</span></li>
+                <li className="flex items-center gap-2"><Check className="size-4 text-ok" /><span><b>{p.maxSeats}</b> user seats</span></li>
                 {d.features.map((f) => <li key={f.key} className={cn('flex items-center gap-2', !p.features.includes(f.key) && 'text-ink-3 line-through decoration-ink-3/40')}>{p.features.includes(f.key) ? <Check className="size-4 text-ok" /> : <Lock className="size-3.5" />}{f.label}</li>)}
               </ul>
               {manage && <Button className="mt-5" variant={higher && !current ? 'primary' : 'secondary'} disabled={current} loading={change.isPending && change.variables?.planCode === p.code}
