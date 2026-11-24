@@ -151,24 +151,24 @@ export function route<B = unknown, Q = unknown>(opts: RouteOptions<B, Q>, handle
   const auth = opts.auth ?? 'org';
   const main: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const body = parseWith(opts.body, req.body) as B;
-      const query = parseWith(opts.query, req.query) as Q;
       const params = req.params as Record<string, string>;
+      // Authentication, tenancy and permission checks happen BEFORE input validation so callers learn nothing about payload rules unless authorised.
+      const parsed = () => ({ body: parseWith(opts.body, req.body) as B, query: parseWith(opts.query, req.query) as Q });
       const bad = (k: string) => params[k] && !UUID_RE.test(params[k]) && k.toLowerCase().endsWith('id');
       for (const k of Object.keys(params)) if (bad(k)) throw new AppError(404, 'NOT_FOUND', 'Resource not found');
 
       let out: unknown;
       if (auth === 'public') {
-        out = await withContext({}, async () => handler({ ctx: undefined as unknown as Ctx, user: undefined as unknown as SessionUser, body, query, params, req, res }));
+        out = await withContext({}, async () => handler({ ctx: undefined as unknown as Ctx, user: undefined as unknown as SessionUser, ...parsed(), params, req, res }));
       } else {
         const user = await resolveSession(req);
         if (!user) throw unauthorized();
         if (auth === 'platform') {
           if (!user.platformRole) throw forbidden('Platform administrator access required', 'PLATFORM_ONLY');
           if (opts.platformRoles && !opts.platformRoles.includes(user.platformRole)) throw forbidden('Your platform role cannot perform this action', 'PLATFORM_ROLE');
-          out = await handler({ ctx: undefined as unknown as Ctx, user, body, query, params, req, res });
+          out = await handler({ ctx: undefined as unknown as Ctx, user, ...parsed(), params, req, res });
         } else if (auth === 'user') {
-          out = await withContext({ userId: user.id }, () => handler({ ctx: undefined as unknown as Ctx, user, body, query, params, req, res }));
+          out = await withContext({ userId: user.id }, () => handler({ ctx: undefined as unknown as Ctx, user, ...parsed(), params, req, res }));
         } else {
           const orgHeader = req.header('x-org-id');
           out = await withContext({ userId: user.id, orgId: orgHeader && UUID_RE.test(orgHeader) ? orgHeader : null }, async () => {
@@ -180,7 +180,7 @@ export function route<B = unknown, Q = unknown>(opts: RouteOptions<B, Q>, handle
             if (opts.feature && !ctx.plan.features.includes(opts.feature)) {
               throw paymentRequired(`Your ${ctx.plan.name} plan does not include this feature. Upgrade to continue.`, 'FEATURE_NOT_IN_PLAN');
             }
-            return handler({ ctx, user, body, query, params, req, res });
+            return handler({ ctx, user, ...parsed(), params, req, res });
           });
         }
       }

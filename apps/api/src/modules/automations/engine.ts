@@ -53,7 +53,7 @@ export async function executeAutomation(orgId: string, executionId: string) {
         } else if (a.type === 'CREATE_TASK') {
           const assignee = resolve(a.assignee, a.userId)[0] ?? null;
           const task = await db().task.create({ data: { organizationId: orgId, title: a.title, description: `Created by automation "${ex.rule.name}"`, priority: a.priority ?? 'MEDIUM', dueAt: new Date(Date.now() + (a.dueInHours ?? 24) * 3_600_000), assignedToId: assignee, leadId: lead.id, isAutomated: true } });
-          await logActivity({ leadId: lead.id, type: 'TASK_CREATED', title: `Task created by automation: ${a.title}`, actorId: null, metadata: { taskId: task.id, automationRuleId: ex.ruleId } });
+          await logActivity({ leadId: lead.id, type: 'TASK_CREATED', title: `Task created by automation: ${a.title}`, actorId: null, touch: false, metadata: { taskId: task.id, automationRuleId: ex.ruleId } });
           if (assignee) await notify({ userIds: [assignee], type: 'TASK_ASSIGNED', title: `New task: ${a.title}`, body: `For ${name}`, link: '/tasks', entityType: 'task', entityId: task.id, dedupeKey: `auto-task:${ex.id}:${i}` });
           log.push({ action: 'CREATE_TASK', taskId: task.id, assignee });
         } else if (a.type === 'SET_PRIORITY') {

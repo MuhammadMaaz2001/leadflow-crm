@@ -11,6 +11,8 @@ export interface ActivityInput {
   metadata?: Prisma.InputJsonValue;
   occurredAt?: Date;
   actorId?: string | null;
+  /** When false the lead's last-activity clock is not reset (used for system-generated entries). */
+  touch?: boolean;
 }
 
 /**
@@ -28,7 +30,7 @@ export async function logActivity(input: ActivityInput) {
       metadata: input.metadata ?? {}, occurredAt,
     },
   });
-  if (input.leadId) {
+  if (input.leadId && input.touch !== false) {
     const isContact = (CONTACT_ACTIVITY_TYPES as readonly string[]).includes(input.type);
     const lead = await db().lead.findUnique({ where: { id: input.leadId }, select: { firstContactedAt: true, status: true } });
     if (lead) {

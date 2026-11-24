@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { PrismaClient } from '@leadflow/database';
 import { createApp } from '../src/app';
 import { ensurePlans } from '../src/modules/subscriptions/service';
 import { platformPrisma, prisma } from '../src/db';
@@ -6,6 +7,8 @@ import { hashPassword } from '../src/lib/crypto';
 import { registerProcessors } from '../src/jobs';
 
 export const app = createApp();
+/** Owner/superuser connection for test fixtures only (bypasses RLS). */
+export const ownerPrisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
 let counter = 0;
 export const uniq = (p = 'u') => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
 export const PASSWORD = 'Passw0rd!test';
@@ -78,10 +81,10 @@ export async function addMember(owner: Actor, roleKey: 'ADMIN' | 'MANAGER' | 'SA
 export async function makePlatformAdmin(role: 'SUPER_ADMIN' | 'SUPPORT_ADMIN' | 'BILLING_ADMIN' = 'SUPER_ADMIN'): Promise<Actor> {
   const email = `${uniq('admin')}@example.com`;
   const agent = request.agent(app);
-  await platformPrisma.user.create({ data: { email, name: 'Platform Admin', passwordHash: await hashPassword(PASSWORD), emailVerifiedAt: new Date(), platformRole: role } });
+  await ownerPrisma.user.create({ data: { email, name: 'Platform Admin', passwordHash: await hashPassword(PASSWORD), emailVerifiedAt: new Date(), platformRole: role } });
   const login = await agent.post('/api/auth/login').send({ email, password: PASSWORD });
   if (login.status !== 200) throw new Error('admin login failed');
-  const u = await platformPrisma.user.findUniqueOrThrow({ where: { email } });
+  const u = await ownerPrisma.user.findUniqueOrThrow({ where: { email } });
   return makeActor(agent, email, u.id);
 }
 
