@@ -3,6 +3,7 @@ import { createApp } from '../src/app';
 import { ensurePlans } from '../src/modules/subscriptions/service';
 import { platformPrisma, prisma } from '../src/db';
 import { hashPassword } from '../src/lib/crypto';
+import { registerProcessors } from '../src/jobs';
 
 export const app = createApp();
 let counter = 0;
@@ -11,6 +12,7 @@ export const PASSWORD = 'Passw0rd!test';
 
 export async function boot() {
   await ensurePlans();
+  registerProcessors();
 }
 
 export interface Actor {

@@ -42,3 +42,13 @@ export async function logActivity(input: ActivityInput) {
   }
   return a;
 }
+
+/** Record that a contact attempt happened (without adding a timeline row) — used by follow-up completion. */
+export async function markContacted(leadId: string, at: Date) {
+  const lead = await db().lead.findUnique({ where: { id: leadId }, select: { firstContactedAt: true, status: true } });
+  if (!lead) return;
+  const data: Prisma.LeadUpdateInput = { lastActivityAt: at > new Date() ? new Date() : at };
+  if (!lead.firstContactedAt || at < lead.firstContactedAt) data.firstContactedAt = at;
+  if (lead.status === 'NEW') data.status = 'CONTACTED';
+  await db().lead.update({ where: { id: leadId }, data });
+}
