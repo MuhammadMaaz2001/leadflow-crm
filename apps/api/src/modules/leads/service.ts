@@ -153,9 +153,9 @@ export async function createLead(ctx: Ctx, input: LeadInput, opts: { method?: st
       companyName: input.companyName ?? null, jobTitle: input.jobTitle ?? null, sourceId: input.sourceId ?? null, campaign: input.campaign ?? null,
       priorityId, description: input.description ?? null, customFields: custom, createdById: ctx.userId,
       assignedToId, assignedAt: assignedToId ? new Date() : null,
-      tags: input.tagIds?.length ? { create: [...new Set(input.tagIds)].map((tagId) => ({ organizationId: ctx.orgId, tagId })) } : undefined,
     },
   });
+  if (input.tagIds?.length) await db().leadTag.createMany({ data: [...new Set(input.tagIds)].map((tagId) => ({ organizationId: ctx.orgId, leadId: lead.id, tagId })) });
   await logActivity({ leadId: lead.id, type: 'LEAD_CREATED', title: 'Lead created', metadata: { sourceId: lead.sourceId } });
   if (assignedToId) {
     await db().leadAssignment.create({ data: { organizationId: ctx.orgId, leadId: lead.id, toUserId: assignedToId, assignedById: ctx.userId, method } });

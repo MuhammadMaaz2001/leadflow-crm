@@ -48,7 +48,7 @@ tasks.get('/', { query: listQuery, summary: 'List tasks (my / team / overdue / c
   if (query.priority?.length) and.push({ priority: { in: query.priority as never } });
   if (query.q) and.push({ title: { contains: query.q, mode: 'insensitive' } });
   const where: Prisma.TaskWhereInput = { organizationId: ctx.orgId, ...(query.leadId ? { leadId: query.leadId } : {}), ...(query.opportunityId ? { opportunityId: query.opportunityId } : {}), AND: and };
-  const orderBy: Prisma.TaskOrderByWithRelationInput[] = query.scope === 'completed' ? [{ completedAt: 'desc' }] : [{ [query.sort]: { sort: query.order, nulls: 'last' } } as never, { createdAt: 'desc' }];
+  const orderBy: Prisma.TaskOrderByWithRelationInput[] = query.scope === 'completed' ? [{ completedAt: 'desc' }] : [(query.sort === 'dueAt' ? { dueAt: { sort: query.order, nulls: 'last' } } : { [query.sort]: query.order }) as never, { createdAt: 'desc' }];
   const [total, rows] = await Promise.all([db().task.count({ where }), db().task.findMany({ where, include, orderBy, ...paginate(query) })]);
   const u = await usersById(rows.flatMap((r) => [r.assignedToId, r.createdById, r.completedById]));
   return paged(rows.map((r) => shape(r, u)), pageMeta(query, total));
