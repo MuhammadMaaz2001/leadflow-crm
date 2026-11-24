@@ -134,6 +134,7 @@ export function LogActivityDialog({ open, onOpenChange, leadId, leadName, initia
   const [direction, setDirection] = React.useState('OUTBOUND');
   const [duration, setDuration] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  const [maxWhen] = React.useState(() => toLocalInput(new Date(Date.now() + 5 * 60_000)));
   React.useEffect(() => { if (open) { setType(initialType); setBody(''); setTitle(''); setWhen(toLocalInput(new Date())); setDirection('OUTBOUND'); setDuration(''); setError(null); } }, [open, initialType]);
   const save = useAct(() => api.post(`/leads/${leadId}/activities`, { type, body: body || undefined, title: title || undefined, occurredAt: fromLocalInput(when), direction: type !== 'NOTE' && type !== 'MEETING' ? direction : undefined, durationMinutes: duration && (type === 'CALL' || type === 'MEETING') ? Number(duration) : undefined }), { success: 'Activity logged', silent: true, onSuccess: () => onOpenChange(false), onError: (e) => setError(errMsg(e)) });
   return (
@@ -143,7 +144,7 @@ export function LogActivityDialog({ open, onOpenChange, leadId, leadName, initia
         <FormError message={error} />
         <div role="tablist" aria-label="Activity type" className="grid grid-cols-5 gap-1 rounded-lg bg-subtle p-1">{ACT_TYPES.map(([v, l]) => <button key={v} role="tab" aria-selected={type === v} type="button" onClick={() => setType(v)} className={cn('flex flex-col items-center gap-0.5 rounded-md py-1.5 text-[11px] font-medium transition-colors', type === v ? 'bg-surface text-ink shadow-card' : 'text-ink-2 hover:text-ink')}>{followUpIcon(v, 'size-3.5')}{l}</button>)}</div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="When" htmlFor="la-when"><Input id="la-when" type="datetime-local" value={when} max={toLocalInput(new Date(Date.now() + 5 * 60_000))} onChange={(e) => setWhen(e.target.value)} /></Field>
+          <Field label="When" htmlFor="la-when"><Input id="la-when" type="datetime-local" value={when} max={maxWhen} onChange={(e) => setWhen(e.target.value)} /></Field>
           {(type === 'CALL' || type === 'EMAIL' || type === 'WHATSAPP') && <Field label="Direction"><Select aria-label="Direction" value={direction} onChange={(e) => setDirection(e.target.value)}><option value="OUTBOUND">Outbound (we reached out)</option><option value="INBOUND">Inbound (they reached out)</option></Select></Field>}
           {(type === 'CALL' || type === 'MEETING') && <Field label="Duration (minutes)"><Input aria-label="Duration" type="number" min={0} value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>}
         </div>

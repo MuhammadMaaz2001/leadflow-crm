@@ -6,6 +6,7 @@ import { audit } from '../../lib/audit';
 import { created, defineRoutes } from '../../http';
 import { startTrial, getUsage } from '../subscriptions/service';
 import { bootstrapWorkspace } from './bootstrap';
+import { validateLogo } from '../../lib/upload';
 import { workspacesFor } from '../auth/routes';
 
 export const orgs = defineRoutes('Workspaces', '/organizations');
@@ -36,19 +37,19 @@ orgs.get('/current', { allowSuspended: true, summary: 'Current workspace details
 });
 
 orgs.patch('/current', { perm: 'settings.manage', body: orgProfileSchema.partial(), summary: 'Update company profile & workspace configuration' }, async ({ ctx, body }) => {
-  const { autoAssignMode, ...rest } = body;
+  const { autoAssignMode, logoData, ...rest } = body;
   if (autoAssignMode && autoAssignMode !== 'NONE' && !ctx.plan.features.includes('rule_assignment') && autoAssignMode === 'RULES') {
     const { paymentRequired } = await import('../../lib/errors');
     throw paymentRequired('Rule-based assignment requires the Professional plan.', 'FEATURE_NOT_IN_PLAN');
   }
-  const org = await db().organization.update({ where: { id: ctx.orgId }, data: { ...rest, autoAssignMode } });
+  const org = await db().organization.update({ where: { id: ctx.orgId }, data: { ...rest, autoAssignMode, ...(logoData !== undefined ? { logoData: validateLogo(logoData) } : {}) } });
   await audit(ctx, 'workspace.updated', 'organization', ctx.orgId, { fields: Object.keys(body) });
   return org;
 });
 
 orgs.post('/current/onboarding', { perm: 'settings.manage', body: onboardingSchema, summary: 'Save onboarding wizard step / complete onboarding' }, async ({ ctx, body }) => {
-  const { complete, ...rest } = body;
-  const org = await db().organization.update({ where: { id: ctx.orgId }, data: { ...rest, ...(complete ? { onboardingCompletedAt: new Date() } : {}) } });
+  const { complete, logoData, ...rest } = body;
+  const org = await db().organization.update({ where: { id: ctx.orgId }, data: { ...rest, ...(logoData !== undefined ? { logoData: validateLogo(logoData) } : {}), ...(complete ? { onboardingCompletedAt: new Date() } : {}) } });
   if (complete) await audit(ctx, 'workspace.onboarded', 'organization', ctx.orgId);
   return org;
 });

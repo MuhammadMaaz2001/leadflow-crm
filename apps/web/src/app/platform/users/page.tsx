@@ -39,7 +39,7 @@ export default function UsersPage() {
       <PageHeader title="Users" count={res.data?.meta.total} description="All accounts across the platform." />
       <Card>
         <div className="border-b border-line p-3"><div className="relative max-w-sm"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" /><Input aria-label="Search users" placeholder="Search name or email…" className="pl-8" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} /></div></div>
-        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} empty={<EmptyState title="No users" />} />
+        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} error={res.error} onRetry={() => res.refetch()} empty={<EmptyState title="No users" />} />
         {(res.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={res.data!.meta.total} noun="users" onPage={setPage} />}
       </Card>
     </>

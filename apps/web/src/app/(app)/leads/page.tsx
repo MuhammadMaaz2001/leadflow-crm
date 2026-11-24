@@ -137,7 +137,6 @@ function LeadsPageInner() {
     <>
       <PageHeader title="Leads" count={q.data ? total.toLocaleString() : undefined} description="Every lead, owner and next step in one place."
         actions={<>
-          {can('leads.merge') && <Button onClick={() => setDupOpen(true)}><Copy className="size-3.5" />Duplicates</Button>}
           {can('leads.import') && <Button onClick={() => (has('import_export') ? setImportOpen(true) : toast.error('Import requires a plan with CSV / Excel import. Upgrade in Billing.'))}><Upload className="size-3.5" />Import</Button>}
           {can('leads.export') && (
             <DropdownMenu>
@@ -147,6 +146,12 @@ function LeadsPageInner() {
                 <DropdownItem onSelect={() => exportLeads('csv')}>CSV file</DropdownItem>
                 <DropdownItem onSelect={() => exportLeads('xlsx')}>Excel (.xlsx)</DropdownItem>
               </DropdownContent>
+            </DropdownMenu>
+          )}
+          {can('leads.merge') && (
+            <DropdownMenu>
+              <DropdownTrigger asChild><Button size="icon" aria-label="More lead tools"><MoreHorizontal className="size-4" /></Button></DropdownTrigger>
+              <DropdownContent><DropdownItem icon={<Copy />} onSelect={() => setDupOpen(true)}>Find & merge duplicates</DropdownItem></DropdownContent>
             </DropdownMenu>
           )}
           {can('leads.create') && <Button variant="primary" onClick={() => { setEditLead(null); setFormOpen(true); }}><Plus className="size-3.5" />Add lead</Button>}
@@ -209,7 +214,7 @@ function LeadsPageInner() {
           </div>
         )}
 
-        <DataTable columns={columns} rows={rows} loading={q.isLoading} onRowClick={(l) => router.push(`/leads/${l.id}`)} sort={{ key: f.sort, order: f.order as 'asc' | 'desc' }} onSort={toggleSort}
+        <DataTable columns={columns} rows={rows} loading={q.isLoading} error={q.error} onRetry={() => q.refetch()} onRowClick={(l) => router.push(`/leads/${l.id}`)} sort={{ key: f.sort, order: f.order as 'asc' | 'desc' }} onSort={toggleSort}
           selection={can('leads.update') || can('leads.assign') || can('leads.archive') ? { selected, onChange: setSelected, renderCheckbox: (checked, onChange, label, indeterminate) => <Checkbox checked={checked} onCheckedChange={onChange} aria-label={label} indeterminate={indeterminate} /> } : undefined}
           empty={<EmptyState icon={<Target />} title={f.q || activeFilters ? 'No leads match these filters' : 'No leads yet'} description={f.q || activeFilters ? 'Try removing a filter or searching for something else.' : 'Add your first lead, or import a spreadsheet to get started.'}
             action={f.q || activeFilters ? <Button onClick={() => { setSearch(''); router.replace('/leads'); }}>Clear filters</Button> : can('leads.create') ? <div className="flex gap-2"><Button variant="primary" onClick={() => setFormOpen(true)}><Plus className="size-3.5" />Add lead</Button>{can('leads.import') && <Button onClick={() => setImportOpen(true)}><Upload className="size-3.5" />Import</Button>}</div> : undefined} />} />

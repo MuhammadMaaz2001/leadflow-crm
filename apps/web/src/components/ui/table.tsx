@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { EmptyState, Skeleton } from './data';
+import { EmptyState, ErrorState, Skeleton } from './data';
 
 export interface Column<T> {
   key: string;
@@ -19,7 +19,8 @@ export interface Column<T> {
 
 const hide = { sm: 'max-sm:hidden', md: 'max-md:hidden', lg: 'max-lg:hidden' };
 
-export function DataTable<T extends { id: string }>({ columns, rows, loading, empty, onRowClick, selection, sort, onSort, rowClassName, skeletonRows = 8, mobileCards = true }: {
+export function DataTable<T extends { id: string }>({ columns, rows, loading, empty, onRowClick, selection, sort, onSort, rowClassName, skeletonRows = 8, mobileCards = true, error, onRetry }: {
+  error?: unknown; onRetry?: () => void;
   columns: Column<T>[]; rows: T[] | undefined; loading?: boolean; empty?: React.ReactNode;
   onRowClick?: (row: T) => void;
   selection?: { selected: Set<string>; onChange: (s: Set<string>) => void; renderCheckbox: (checked: boolean, onChange: (v: boolean) => void, label: string, indeterminate?: boolean) => React.ReactNode };
@@ -30,6 +31,7 @@ export function DataTable<T extends { id: string }>({ columns, rows, loading, em
   const toggleAll = (v: boolean) => { if (!selection || !rows) return; const s = new Set(selection.selected); rows.forEach((r) => (v ? s.add(r.id) : s.delete(r.id))); selection.onChange(s); };
   const toggle = (id: string, v: boolean) => { if (!selection) return; const s = new Set(selection.selected); if (v) s.add(id); else s.delete(id); selection.onChange(s); };
 
+  if (error && !rows?.length) return <ErrorState error={error} onRetry={onRetry} />;
   if (!loading && rows && rows.length === 0) return <>{empty ?? <EmptyState title="Nothing here yet" />}</>;
   const primary = columns.find((c) => c.primary) ?? columns[0]!;
 

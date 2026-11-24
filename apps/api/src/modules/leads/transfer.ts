@@ -10,6 +10,7 @@ import { logActivity } from '../activities/service';
 import { assertLeadCapacity } from '../subscriptions/service';
 import { emitTrigger } from '../automations/events';
 import { pickAssignee, validateCustomFields } from './service';
+import { assertSpreadsheet } from '../../lib/upload';
 import { buildLeadWhere, leadFilterQuery, leadInclude, shapeLeads } from './queries';
 
 export const MAX_IMPORT_ROWS = 2000;
@@ -26,9 +27,9 @@ const key = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, '');
 export interface ParsedRow { rowNumber: number; values: Record<string, string> }
 
 export async function parseUpload(file: { originalname: string; buffer: Buffer }): Promise<{ headers: string[]; rows: ParsedRow[] }> {
-  const name = file.originalname.toLowerCase();
+  const kind = assertSpreadsheet(file);
   let table: string[][] = [];
-  if (name.endsWith('.xlsx')) {
+  if (kind === 'xlsx') {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
     const ws = wb.worksheets[0];
@@ -41,13 +42,12 @@ export async function parseUpload(file: { originalname: string; buffer: Buffer }
       }
       table.push(vals);
     });
-  } else if (name.endsWith('.csv') || name.endsWith('.txt')) {
-    const parsed = Papa.parse<string[]>(file.buffer.toString('utf8').replace(/^﻿/, ''), { skipEmptyLines: 'greedy' });
-    table = parsed.data as string[][];
   } else {
-    throw badRequest('Unsupported file type. Upload a .csv or .xlsx file.', undefined, 'UNSUPPORTED_FILE');
+    const parsed = Papa.parse<string[]>(file.buffer.toString('utf8').replace(/^\uFEFF/, ''), { skipEmptyLines: 'greedy' });
+    table = parsed.data as string[][];
   }
   if (table.length < 2) throw badRequest('The file needs a header row and at least one data row.', undefined, 'EMPTY_FILE');
+  if ((table[0]?.length ?? 0) > 100) throw badRequest('Too many columns (limit 100).', undefined, 'TOO_MANY_COLUMNS');
   const headers = table[0]!.map((h) => String(h ?? '').trim());
   const rows = table.slice(1).map((r, i) => ({ rowNumber: i + 2, values: Object.fromEntries(headers.map((h, ci) => [h, String(r[ci] ?? '').trim()])) }));
   return { headers, rows };

@@ -40,7 +40,7 @@ export default function InvoicesPage() {
       <PageHeader title="Invoices & billing" count={res.data?.meta.total} description={res.data?.meta.totalAmount !== undefined ? `${money(Number(res.data.meta.totalAmount), 'USD')} across this view` : undefined} />
       <Card>
         <div className="flex flex-wrap gap-2 border-b border-line p-3"><div className="relative min-w-[200px] max-w-xs flex-1"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" /><Input aria-label="Search invoices" placeholder="Invoice number or organization…" className="pl-8" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} /></div><div className="w-36"><Select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">Any status</option>{['OPEN', 'PAID', 'FAILED', 'VOID'].map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}</Select></div></div>
-        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} empty={<EmptyState icon={<FileText />} title="No invoices" />} />
+        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} error={res.error} onRetry={() => res.refetch()} empty={<EmptyState icon={<FileText />} title="No invoices" />} />
         {(res.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={res.data!.meta.total} noun="invoices" onPage={setPage} />}
       </Card>
       <p className="mt-3 text-xs text-ink-3">No payment processor is integrated. “Mark paid” records a payment received outside the system and is attributed to you in the audit log.</p>

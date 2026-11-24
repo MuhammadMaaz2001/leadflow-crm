@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import Link from 'next/link';
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCorners, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent, type DragOverEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, MouseSensor, TouchSensor, closestCorners, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent, type DragOverEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { CalendarDays, GripVertical, List, Plus, Search, Trophy, XCircle } from 'lucide-react';
@@ -14,7 +14,7 @@ import { fmtDate, money, timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/form';
-import { Avatar, EmptyState, PageHeader, Skeleton } from '@/components/ui/data';
+import { Avatar, Card as UiCard, EmptyState, ErrorState, PageHeader, Skeleton } from '@/components/ui/data';
 import { LostReasonDialog, OpportunityDialog } from '@/components/dialogs';
 import { OpportunitySheet, type Opp } from '@/components/opportunity-sheet';
 import { useDebounced } from '@/lib/use-url-state';
@@ -39,6 +39,27 @@ function Card({ opp, currency, onOpen, overlay }: { opp: Opp; currency: string; 
         </span>
       </div>
       {opp.status === 'OPEN' && <p className="mt-1.5 text-[10px] text-ink-3">{timeAgo(opp.stageEnteredAt).replace(' ago', '')} in stage</p>}
+    </div>
+  );
+}
+
+/** Pinned drop targets shown while dragging, so Won / Lost are reachable even when their columns are off-screen. */
+function OutcomeDock({ cols, overCol }: { cols: Col[]; overCol: string | null }) {
+  const outcomes = cols.filter((c) => c.kind !== 'OPEN');
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-3">
+      <div className="animate-lf-pop pointer-events-auto flex gap-3 rounded-2xl border border-line bg-surface/95 p-2 shadow-pop backdrop-blur">
+        {outcomes.map((c) => <DockTarget key={c.id} col={c} over={overCol === c.id} />)}
+      </div>
+    </div>
+  );
+}
+function DockTarget({ col, over }: { col: Col; over: boolean }) {
+  const { setNodeRef } = useDroppable({ id: `dock:${col.id}` });   // distinct id: the real column stays a valid drop target while the dock is shown
+  const won = col.kind === 'WON';
+  return (
+    <div ref={setNodeRef} data-testid={`dock-${col.kind.toLowerCase()}`} className={cn('flex min-w-[150px] items-center justify-center gap-2 rounded-xl border-2 border-dashed px-5 py-4 text-[13px] font-semibold transition-colors', won ? 'border-ok/40 text-ok' : 'border-bad/40 text-bad', over && (won ? 'border-ok bg-ok-soft' : 'border-bad bg-bad-soft'))}>
+      {won ? <Trophy className="size-4" /> : <XCircle className="size-4" />}Drop to mark {col.name.toLowerCase()}
     </div>
   );
 }
@@ -80,8 +101,8 @@ export default function PipelinePage() {
   const [active, setActive] = React.useState<Opp | null>(null);
   const [overCol, setOverCol] = React.useState<string | null>(null);
   const [pendingLost, setPendingLost] = React.useState<{ opp: Opp; stageId: string; beforeId: string | null; prev: Col[] } | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-  const colOf = (cid: string | number | undefined) => { const s = String(cid ?? ''); return s.startsWith('col:') ? cols.find((c) => c.id === s.slice(4)) : cols.find((c) => c.opportunities.some((o) => o.id === s)); };
+  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const colOf = (cid: string | number | undefined) => { const s = String(cid ?? ''); return s.startsWith('col:') ? cols.find((c) => c.id === s.slice(4)) : s.startsWith('dock:') ? cols.find((c) => c.id === s.slice(5)) : cols.find((c) => c.opportunities.some((o) => o.id === s)); };
 
   async function persist(opp: Opp, stageId: string, beforeId: string | null, prev: Col[], reason?: { id: string; note?: string }) {
     try {
@@ -100,7 +121,7 @@ export default function PipelinePage() {
     const from = colOf(a.id), to = colOf(over.id);
     if (!from || !to) return;
     const opp = from.opportunities.find((o) => o.id === a.id)!;
-    const overIsCard = !String(over.id).startsWith('col:');
+    const overIsCard = !/^(col|dock):/.test(String(over.id));
     if (from.id === to.id && (!overIsCard || over.id === a.id)) return;
     const prev = cols;
     const beforeId = overIsCard && over.id !== a.id ? String(over.id) : null;
@@ -131,11 +152,16 @@ export default function PipelinePage() {
         <div className="relative w-[240px]"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search deals or leads…" aria-label="Search deals" className="pl-8" /></div>
         {q.data && <p className="ml-auto text-xs text-ink-3">{cols.filter((c) => c.kind === 'OPEN').reduce((a, c) => a + c.count, 0)} open · {money(cols.filter((c) => c.kind === 'OPEN').reduce((a, c) => a + c.totalValue, 0), currency)} in pipeline</p>}
       </div>
+      {q.data && cols.every((c) => c.count === 0) && !dsearch && !ownerId && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-line-strong bg-surface p-4"><div><p className="text-[13px] font-semibold">Your pipeline is empty</p><p className="text-xs text-ink-2">Open a lead and choose “New opportunity” — or create one here — then drag it across the stages.</p></div>{can('opportunities.manage') && <Button variant="primary" onClick={() => setNewOpp(true)}><Plus className="size-3.5" />New opportunity</Button>}</div>
+      )}
+      {q.isError && <UiCard><ErrorState error={q.error} onRetry={() => q.refetch()} /></UiCard>}
       {q.isLoading ? <div className="flex gap-3 overflow-hidden">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-[420px] w-[286px] shrink-0" />)}</div> : cols.length === 0 ? <EmptyState title="No pipeline found" /> : (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => { setActive(null); setOverCol(null); }}>
-          <div className="scroll-thin -mx-3 flex gap-3 overflow-x-auto px-3 pb-3 sm:-mx-6 sm:px-6" data-testid="kanban">
+          <div className="scroll-thin -mx-3 flex items-start gap-3 overflow-x-auto px-3 pb-3 sm:-mx-6 sm:px-6" data-testid="kanban">
             {cols.map((c) => <Column key={c.id} col={c} currency={currency} onOpen={setOpenId} over={overCol === c.id && active?.stage.id !== c.id} />)}
           </div>
+          {active && active.status === 'OPEN' && <OutcomeDock cols={cols} overCol={overCol} />}
           <DragOverlay dropAnimation={{ duration: 180 }}>{active ? <Card opp={active} currency={currency} overlay /> : null}</DragOverlay>
         </DndContext>
       )}

@@ -51,7 +51,7 @@ function RuleDialog({ open, onOpenChange, rule }: { open: boolean; onOpenChange:
             {f.trigger === 'LEAD_NOT_CONTACTED' && <Field label="Wait (hours)"><Input aria-label="Hours" type="number" min={1} value={f.afterHours} onChange={(e) => setF({ ...f, afterHours: e.target.value })} /></Field>}
             {f.trigger === 'LEAD_INACTIVE' && <Field label="Inactive for (days)"><Input aria-label="Days" type="number" min={1} value={f.afterDays} onChange={(e) => setF({ ...f, afterDays: e.target.value })} /></Field>}
           </div>
-          {!t.hasDelay || true ? (
+          {t ? (
             <div className="mt-3 space-y-2"><p className="text-xs text-ink-3">Only when the lead matches (optional)</p>
               <div className="flex flex-wrap gap-1.5">{sources.data?.map((s) => <button key={s.id} type="button" aria-pressed={f.sourceIds.includes(s.id)} onClick={() => toggle('sourceIds', s.id)} className={cn('rounded-full border px-2.5 py-0.5 text-xs', f.sourceIds.includes(s.id) ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line text-ink-2 hover:bg-subtle')}>Source: {s.name}</button>)}</div>
               <div className="flex flex-wrap gap-1.5">{priorities.data?.map((s) => <button key={s.id} type="button" aria-pressed={f.priorityIds.includes(s.id)} onClick={() => toggle('priorityIds', s.id)} className={cn('rounded-full border px-2.5 py-0.5 text-xs', f.priorityIds.includes(s.id) ? 'border-accent bg-accent-soft text-accent-ink' : 'border-line text-ink-2 hover:bg-subtle')}>Priority: {s.name}</button>)}</div></div>

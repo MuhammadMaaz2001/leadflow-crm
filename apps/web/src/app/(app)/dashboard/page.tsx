@@ -1,11 +1,12 @@
 'use client';
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertCircle, ArrowUpRight, CalendarClock, CalendarX2, CheckCircle2, ClipboardList, Inbox, Phone, TrendingUp, UserX } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Check, CalendarClock, Rocket, X, CalendarX2, CheckCircle2, ClipboardList, Inbox, Phone, TrendingUp, UserX } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useOrg, useT } from '@/lib/session';
 import { fmtRelativeDay, money, num, pct, timeAgo } from '@/lib/format';
-import { Avatar, Badge, Card, CardHeader, EmptyState, PageHeader, Skeleton, UserChip } from '@/components/ui/data';
+import { Avatar, Badge, Card, CardHeader, EmptyState, ErrorState, PageHeader, Skeleton, UserChip } from '@/components/ui/data';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
 import { FilterBar, defaultFilters, filterParams, type ReportFilterState } from '@/components/filters';
 import { Donut, HBarChart, Legend2, RateLine, StackedBars, TrendChart, PALETTE } from '@/components/charts';
@@ -38,9 +39,40 @@ function Kpi({ label, value, hint, icon, tone, href, big }: { label: string; val
   return href ? <Link href={href} className="group block">{inner}</Link> : <div className="group">{inner}</div>;
 }
 
+function GettingStarted({ stats }: { stats: { leads: number; seats: number; followUps: number; opportunities: number } }) {
+  const [hidden, setHidden] = React.useState(true);
+  const { orgId } = useOrg();
+  const key = `lf_gs_${orgId}`;
+  React.useEffect(() => { try { setHidden(localStorage.getItem(key) === '1'); } catch { setHidden(false); } }, [key]);
+  const steps = [
+    { done: stats.leads > 0, title: 'Add your first lead', hint: 'Type one in, or import a CSV / Excel file.', href: '/leads', cta: 'Add leads' },
+    { done: stats.seats > 1, title: 'Invite your team', hint: 'Give salespeople access and assign them leads.', href: '/team', cta: 'Invite' },
+    { done: stats.followUps > 0, title: 'Schedule a follow-up', hint: 'Every active lead needs a next step with a date.', href: '/follow-ups', cta: 'Schedule' },
+    { done: stats.opportunities > 0, title: 'Create an opportunity', hint: 'Track a real deal through your pipeline.', href: '/pipeline', cta: 'Open pipeline' },
+  ];
+  const left = steps.filter((s) => !s.done).length;
+  if (hidden || left === 0) return null;
+  return (
+    <Card className="mb-4 border-accent/30 bg-accent-soft/40 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2"><span className="flex size-8 items-center justify-center rounded-lg bg-accent text-white"><Rocket className="size-4" /></span><div><p className="text-[13px] font-semibold">Get started with LeadFlow</p><p className="text-xs text-ink-2">{steps.length - left} of {steps.length} done</p></div></div>
+        <Button variant="ghost" size="iconSm" aria-label="Dismiss getting started" onClick={() => { setHidden(true); try { localStorage.setItem(key, '1'); } catch { /* ignore */ } }}><X className="size-4" /></Button>
+      </div>
+      <ul className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        {steps.map((s) => (
+          <li key={s.title} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface p-3">
+            <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border ${s.done ? 'border-ok bg-ok text-white' : 'border-line-strong'}`}>{s.done && <Check className="size-3" />}</span>
+            <div className="min-w-0"><p className={`text-[13px] font-medium ${s.done ? 'text-ink-3 line-through' : ''}`}>{s.title}</p><p className="text-xs text-ink-3">{s.hint}</p>{!s.done && <Link href={s.href} className="mt-1 inline-block text-xs font-medium text-accent-ink hover:underline">{s.cta} →</Link>}</div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const [filters, setFilters] = React.useState<ReportFilterState>(defaultFilters);
-  const { currency, can } = useOrg();
+  const { currency, can, org } = useOrg();
   const q = useT(['dashboard', filters], () => api.get<Dash>('/dashboard', filterParams(filters)), { staleTime: 20_000, keep: true });
   const d = q.data;
   const k = d?.kpis;
@@ -49,6 +81,8 @@ export default function DashboardPage() {
     <>
       <PageHeader title="Dashboard" description={d?.filters.restricted ? 'Showing your own leads and follow-ups.' : 'Company-wide performance across leads, pipeline and team.'} actions={<FilterBar value={filters} onChange={setFilters} />} />
 
+      {org && !loading && !q.isError && <GettingStarted stats={org.usage} />}
+      {q.isError && !d && <Card><ErrorState error={q.error} onRetry={() => q.refetch()} /></Card>}
       <Card className="overflow-hidden">
         <div className="grid grid-cols-2 divide-x divide-line md:grid-cols-3 xl:grid-cols-5 [&>*]:border-b [&>*]:border-line xl:[&>*]:border-b-0">
           <Kpi big label="Total leads" value={loading ? <Skeleton className="h-8 w-16" /> : num(k?.totalLeads)} hint={`${num(k?.newLeads)} new · ${num(k?.unassignedLeads)} unassigned`} icon={<Inbox />} href="/leads" />
@@ -58,17 +92,17 @@ export default function DashboardPage() {
           <Kpi big label="Conversion rate" value={loading ? <Skeleton className="h-8 w-16" /> : pct(k?.conversionRate)} hint={`${num(k?.wonOpportunities)} won / ${num((k?.wonOpportunities ?? 0) + (k?.lostOpportunities ?? 0))} closed`} icon={<TrendingUp />} tone="text-ok" href="/reports/conversion" />
         </div>
         <div className="grid grid-cols-2 divide-x divide-line border-t border-line bg-subtle/40 md:grid-cols-4 [&>*]:border-b [&>*]:border-line md:[&>*]:border-b-0">
-          <Kpi label="New leads" value={loading ? '—' : num(k?.newLeads)} icon={<Inbox />} href="/leads?status=NEW" />
-          <Kpi label="Assigned / unassigned" value={loading ? '—' : `${num(k?.assignedLeads)} / ${num(k?.unassignedLeads)}`} icon={<UserX />} href="/leads?assignedToId=unassigned" />
+          <Kpi label="New leads" value={loading ? '—' : num(k?.newLeads)} hint="waiting for first contact" icon={<Inbox />} href="/leads?status=NEW" />
+          <Kpi label="Assigned / unassigned" value={loading ? '—' : `${num(k?.assignedLeads)} / ${num(k?.unassignedLeads)}`} hint="ownership coverage" icon={<UserX />} href="/leads?assignedToId=unassigned" />
           <Kpi label="Won leads" value={loading ? '—' : num(k?.wonLeads)} hint={k ? money(k.wonValue, currency, true) + ' won value' : undefined} icon={<CheckCircle2 />} tone="text-ok" href="/leads?status=CONVERTED" />
-          <Kpi label="Lost leads" value={loading ? '—' : num(k?.lostLeads)} icon={<AlertCircle />} tone="text-bad" href="/leads?status=LOST" />
+          <Kpi label="Lost leads" value={loading ? '—' : num(k?.lostLeads)} hint="see the lost-lead report" icon={<AlertCircle />} tone="text-bad" href="/leads?status=LOST" />
         </div>
       </Card>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader title="Leads generated" description="New leads created in the selected period, and how many are now won." />
-          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[240px]" /> : <TrendChart data={d.leadsOverTime} granularity={d.filters.granularity} series={[{ key: 'leads', name: 'Leads', color: '#5558e3' }, { key: 'won', name: 'Won', color: '#10b981' }]} />}</div>
+          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[240px]" /> : d.leadsOverTime.every((x) => x.leads === 0) ? <EmptyState className="py-14" icon={<Inbox />} title="No leads in this period" description="New leads will chart here as they come in." /> : <TrendChart data={d.leadsOverTime} granularity={d.filters.granularity} series={[{ key: 'leads', name: 'Leads', color: '#5558e3' }, { key: 'won', name: 'Won', color: '#10b981' }]} />}</div>
         </Card>
         <Card>
           <CardHeader title="Leads by source" description="Where your leads come from" />
@@ -93,11 +127,11 @@ export default function DashboardPage() {
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader title="Pipeline overview" description={d?.pipeline.name ? `Open opportunities · ${d.pipeline.name}` : 'Open opportunities by stage'} actions={<Link href="/pipeline" className="flex items-center gap-0.5 text-xs text-accent-ink hover:underline">Open board <ArrowUpRight className="size-3" /></Link>} />
-          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[230px]" /> : <HBarChart height={230} data={d.pipeline.stages.filter((s) => s.kind === 'OPEN').map((s) => ({ name: s.name, value: s.count, color: s.color }))} />}</div>
+          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[230px]" /> : d.pipeline.stages.every((x) => x.count === 0) ? <EmptyState className="py-12" title="No open deals" description="Create an opportunity from a lead." /> : <HBarChart height={230} data={d.pipeline.stages.filter((s) => s.kind === 'OPEN').map((s) => ({ name: s.name, value: s.count, color: s.color }))} />}</div>
         </Card>
         <Card>
           <CardHeader title="Won vs lost" description="Opportunities closed per period" />
-          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[230px]" /> : <StackedBars height={230} data={d.wonVsLost} granularity={d.filters.granularity} series={[{ key: 'won', name: 'Won', color: '#10b981' }, { key: 'lost', name: 'Lost', color: '#ef4444' }]} />}</div>
+          <div className="px-2 pb-3 pt-2">{loading || !d ? <Skeleton className="m-3 h-[230px]" /> : d.wonVsLost.every((x) => x.won + x.lost === 0) ? <EmptyState className="py-12" title="Nothing closed yet" description="Won and lost deals appear here." /> : <StackedBars height={230} data={d.wonVsLost} granularity={d.filters.granularity} series={[{ key: 'won', name: 'Won', color: '#10b981' }, { key: 'lost', name: 'Lost', color: '#ef4444' }]} />}</div>
         </Card>
         <Card>
           <CardHeader title="Monthly conversion" description="Won ÷ closed opportunities, last months" />

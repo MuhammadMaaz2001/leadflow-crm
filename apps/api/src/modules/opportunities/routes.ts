@@ -4,7 +4,7 @@ import type { Prisma } from '@leadflow/database';
 import { db } from '../../db';
 import { AppError, notFound } from '../../lib/errors';
 import { created, defineRoutes, paged } from '../../http';
-import { csvList, pageMeta, paginate, pageQuery } from '../../lib/pagination';
+import { csvEnum, csvUuids, pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { lite, usersById } from '../../lib/users';
 import { audit } from '../../lib/audit';
 import { assertActiveMember, syncLeadFromOpportunities } from '../leads/service';
@@ -13,7 +13,7 @@ import { createOpportunity, getOppOr404, moveOpportunity, oppScope } from './ser
 export const opportunities = defineRoutes('Opportunities', '/opportunities');
 
 const filterQuery = z.object({
-  pipelineId: z.string().uuid().optional(), stageId: z.string().uuid().optional(), status: csvList, ownerId: csvList, leadId: z.string().uuid().optional(),
+  pipelineId: z.string().uuid().optional(), stageId: z.string().uuid().optional(), status: csvEnum(['OPEN', 'WON', 'LOST']), ownerId: csvUuids(), leadId: z.string().uuid().optional(),
   q: z.string().trim().max(100).optional(), closeFrom: z.coerce.date().optional(), closeTo: z.coerce.date().optional(),
 });
 

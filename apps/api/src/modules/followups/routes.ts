@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Prisma } from '@leadflow/database';
 import { db } from '../../db';
 import { created, defineRoutes, paged } from '../../http';
-import { csvList, pageMeta, paginate, pageQuery } from '../../lib/pagination';
+import { csvEnum, csvUuids, pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { addDaysSafe, resolveRange } from '../../lib/dates-util';
 import { lite, usersById } from '../../lib/users';
 import { notify } from '../notifications/service';
@@ -14,7 +14,7 @@ export const followups = defineRoutes('Follow-ups', '');
 
 const listQuery = z.object({
   ...pageQuery, view: z.enum(['today', 'upcoming', 'overdue', 'completed', 'canceled', 'pending', 'all']).default('pending'),
-  assignedToId: csvList, leadId: z.string().uuid().optional(), type: csvList, priority: csvList, q: z.string().trim().max(100).optional(),
+  assignedToId: csvUuids('me'), leadId: z.string().uuid().optional(), type: csvEnum(['CALL', 'WHATSAPP', 'EMAIL', 'MEETING', 'VIDEO_CALL', 'OTHER']), priority: csvEnum(['LOW', 'MEDIUM', 'HIGH']), q: z.string().trim().max(100).optional(),
   from: z.coerce.date().optional(), to: z.coerce.date().optional(),
 });
 
@@ -58,7 +58,7 @@ followups.get('/followups', { query: listQuery, summary: 'List follow-ups (today
   })), pageMeta(query, total));
 });
 
-followups.get('/followups/summary', { query: z.object({ assignedToId: z.string().optional() }), summary: 'Follow-up counters (overdue / today / upcoming / completed today)' }, async ({ ctx, query }) => {
+followups.get('/followups/summary', { query: z.object({ assignedToId: z.union([z.literal('me'), z.string().uuid()]).optional() }), summary: 'Follow-up counters (overdue / today / upcoming / completed today)' }, async ({ ctx, query }) => {
   const today = resolveRange('today', ctx.org.timezone);
   const base: Prisma.FollowUpWhereInput = { organizationId: ctx.orgId, AND: [followUpScope(ctx), ...(query.assignedToId ? [{ assignedToId: query.assignedToId === 'me' ? ctx.userId : query.assignedToId }] : [])] };
   const now = new Date();
@@ -120,7 +120,7 @@ followups.post('/followups/:id/cancel', { perm: 'followups.manage', body: follow
 });
 
 // ── Calendar: follow-ups + tasks as events ──
-followups.get('/calendar', { query: z.object({ from: z.coerce.date(), to: z.coerce.date(), assignedToId: z.string().optional(), kinds: z.string().optional() }), summary: 'Calendar events (follow-ups and tasks) for a date window' }, async ({ ctx, query }) => {
+followups.get('/calendar', { query: z.object({ from: z.coerce.date(), to: z.coerce.date(), assignedToId: z.union([z.literal('me'), z.string().uuid()]).optional(), kinds: z.string().optional() }), summary: 'Calendar events (follow-ups and tasks) for a date window' }, async ({ ctx, query }) => {
   if (query.to.getTime() - query.from.getTime() > 100 * 86_400_000) throw new (await import('../../lib/errors')).AppError(400, 'RANGE_TOO_LARGE', 'Choose a window of at most 100 days');
   const kinds = (query.kinds ?? 'followup,task').split(',');
   const assignee = query.assignedToId ? (query.assignedToId === 'me' ? ctx.userId : query.assignedToId) : undefined;

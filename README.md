@@ -54,9 +54,11 @@ Billing is an internal system: plans, trials, limits, invoices, grace periods an
 | `npm run dev` | API (tsx watch) + worker + web in parallel |
 | `npm run build` | shared → Prisma client → API (`tsc`) → web (`next build`) |
 | `npm test` | API integration tests (creates `leadflow_test` DB) + web unit tests |
-| `npm run test:e2e` | Playwright acceptance + responsive tests (needs a seeded dev DB) |
+| `npm run test:e2e` | Playwright acceptance, module, role and responsive tests against the production web build (needs a seeded dev DB; creates throw-away workspaces) |
 | `npm run db:migrate` / `db:seed` / `db:reset` | Prisma migrations, seed, full reset |
 | `npm run typecheck` | strict TypeScript for every package |
+| `npm run lint` | ESLint (flat config, zero warnings allowed) |
+| `npm run dev:e2e -w @leadflow/api` | API with rate limits disabled, as used by Playwright |
 
 ## Repository layout
 ```

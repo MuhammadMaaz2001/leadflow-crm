@@ -11,7 +11,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list']],
-  use: { baseURL: WEB, trace: 'off', screenshot: 'only-on-failure', video: 'off', launchOptions: { args: ['--no-sandbox'] } },
+  use: { baseURL: WEB, actionTimeout: 15_000, navigationTimeout: 30_000, trace: 'off', screenshot: 'only-on-failure', video: 'off', launchOptions: { args: ['--no-sandbox'] } },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testMatch: /.*\.spec\.ts/, testIgnore: /responsive/ },
     { name: 'responsive', use: { ...devices['Desktop Chrome'] }, testMatch: /responsive\.spec\.ts/ },

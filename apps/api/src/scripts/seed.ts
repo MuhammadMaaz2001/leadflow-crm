@@ -106,6 +106,10 @@ async function seedOrg(spec: OrgSpec) {
         companyName: COMPANIES[spec.key]![i % 12], jobTitle: pick(TITLES), sourceId: source.id, campaign: r() < 0.6 ? pick(CAMPAIGNS) : null, priorityId: priority.id,
         status, assignedToId: owner?.id ?? null, assignedAt: owner ? addMinutes(createdAt, 5) : null, description: r() < 0.5 ? 'Interested in a call this week. Prefers WhatsApp for quick questions.' : null,
         customFields: custom, createdById: i % 3 === 0 ? users.manager.id : users.owner.id, firstContactedAt, lastActivityAt: lastActivityAt > now ? now : lastActivityAt, createdAt, updatedAt: createdAt,
+        // closed leads must carry their closing timestamp (DB check constraints); refined below when an opportunity closes them
+        convertedAt: status === 'CONVERTED' ? (lastActivityAt > now ? now : lastActivityAt) : null,
+        lostAt: status === 'LOST' ? (lastActivityAt > now ? now : lastActivityAt) : null,
+        lostReasonId: status === 'LOST' ? pick(reasons).id : null,
       } });
       if (r() < 0.5) await tx.leadTag.create({ data: { organizationId: orgId, leadId, tagId: pick(tags).id } });
       await tx.activity.create({ data: { organizationId: orgId, leadId, type: 'LEAD_CREATED', actorId: i % 3 === 0 ? users.manager.id : users.owner.id, title: 'Lead created', occurredAt: createdAt, createdAt } });

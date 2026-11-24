@@ -11,10 +11,10 @@ import { Field, FormError, Input, Select, Checkbox } from '@/components/ui/form'
 import { Card } from '@/components/ui/data';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { TIMEZONES, withCurrent } from '@/lib/format';
 import { errMsg, useMe, useOrg, useOrgContext, useRequireAuth, useWorkspace } from '@/lib/session';
 
 const STEPS = ['Company', 'Business details', 'Sales setup', 'Invite team'] as const;
-const zones = (() => { try { return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone'); } catch { return ['UTC', 'America/New_York', 'Europe/London', 'Asia/Karachi', 'Asia/Dubai']; } })();
 
 function Wizard() {
   const params = useSearchParams();
@@ -30,7 +30,7 @@ function Wizard() {
   const [orgReady, setOrgReady] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [company, setCompany] = React.useState({ name: '', industry: INDUSTRIES[0] as string });
+  const [company, setCompany] = React.useState({ name: '', industry: '' as string });
   const [details, setDetails] = React.useState({ website: '', contactEmail: '', contactPhone: '', country: '', timezone: 'UTC', currency: 'USD', dateFormat: 'MMM d, yyyy', logoData: '' as string });
   const [sources, setSources] = React.useState<Array<{ id: string; name: string; keep: boolean }>>([]);
   const [newSource, setNewSource] = React.useState('');
@@ -54,7 +54,7 @@ function Wizard() {
     try {
       if (step === 0) {
         if (company.name.trim().length < 2) throw new Error('Enter your company name');
-        const r = await api.post<{ id: string }>('/organizations', { name: company.name.trim(), industry: company.industry }, { tenant: false });
+        const r = await api.post<{ id: string }>('/organizations', { name: company.name.trim(), industry: company.industry || undefined }, { tenant: false });
         setOrgId(r.id); await qc.invalidateQueries({ queryKey: ['me'] }); setOrgReady(true);
       } else if (step === 1) {
         await api.patch('/organizations/current', { website: details.website || null, contactEmail: details.contactEmail || null, contactPhone: details.contactPhone || null, country: details.country || null, timezone: details.timezone, currency: details.currency, dateFormat: details.dateFormat, logoData: details.logoData || null });
@@ -110,7 +110,7 @@ function Wizard() {
               <div className="space-y-4">
                 <div><h1 className="text-lg font-semibold">Create your workspace</h1><p className="mt-1 text-[13px] text-ink-2">Each company gets a private workspace with its own team, pipeline and data.</p></div>
                 <Field label="Company name" required htmlFor="cn"><Input id="cn" autoFocus value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} placeholder="Acme Realty" /></Field>
-                <Field label="Industry" htmlFor="ind"><Select id="ind" value={company.industry} onChange={(e) => setCompany({ ...company, industry: e.target.value })}>{INDUSTRIES.map((i) => <option key={i}>{i}</option>)}</Select></Field>
+                <Field label="Industry" htmlFor="ind"><Select id="ind" value={company.industry} onChange={(e) => setCompany({ ...company, industry: e.target.value })}><option value="">Select an industry (optional)</option>{INDUSTRIES.map((i) => <option key={i}>{i}</option>)}</Select></Field>
                 <p className="text-xs text-ink-3">You start with a 14-day Professional trial. No credit card needed.</p>
               </div>
             )}
@@ -121,16 +121,16 @@ function Wizard() {
                   <label className="flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-strong bg-subtle text-ink-3 hover:border-accent">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     {details.logoData ? <img src={details.logoData} alt="Company logo" className="size-full object-cover" /> : <ImagePlus className="size-5" />}
-                    <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" onChange={(e) => onLogo(e.target.files?.[0])} aria-label="Upload logo" />
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" onChange={(e) => onLogo(e.target.files?.[0])} aria-label="Upload logo" />
                   </label>
-                  <div className="text-xs text-ink-3">Company logo<br />PNG, JPG or SVG, up to 400 KB (optional)</div>
+                  <div className="text-xs text-ink-3">Company logo<br />PNG, JPG, WebP or GIF, up to 400 KB (optional)</div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Website"><Input value={details.website} onChange={(e) => setDetails({ ...details, website: e.target.value })} placeholder="https://" /></Field>
                   <Field label="Contact email"><Input type="email" value={details.contactEmail} onChange={(e) => setDetails({ ...details, contactEmail: e.target.value })} /></Field>
                   <Field label="Phone"><Input value={details.contactPhone} onChange={(e) => setDetails({ ...details, contactPhone: e.target.value })} /></Field>
                   <Field label="Country"><Input value={details.country} onChange={(e) => setDetails({ ...details, country: e.target.value })} /></Field>
-                  <Field label="Timezone"><Select value={details.timezone} onChange={(e) => setDetails({ ...details, timezone: e.target.value })}>{zones.map((z) => <option key={z}>{z}</option>)}</Select></Field>
+                  <Field label="Timezone"><Select value={details.timezone} onChange={(e) => setDetails({ ...details, timezone: e.target.value })}>{withCurrent(TIMEZONES, details.timezone).map((z) => <option key={z}>{z}</option>)}</Select></Field>
                   <Field label="Currency"><Select value={details.currency} onChange={(e) => setDetails({ ...details, currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</Select></Field>
                   <Field label="Date format"><Select value={details.dateFormat} onChange={(e) => setDetails({ ...details, dateFormat: e.target.value })}>{DATE_FORMATS.map((c) => <option key={c}>{c}</option>)}</Select></Field>
                 </div>

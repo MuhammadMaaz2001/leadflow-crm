@@ -3,13 +3,13 @@ import { z } from 'zod';
 import type { Prisma } from '@leadflow/database';
 import { db } from '../../db';
 import { defineRoutes, paged } from '../../http';
-import { csvList, pageMeta, paginate, pageQuery } from '../../lib/pagination';
+import { csvEnum, pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { lite, usersById } from '../../lib/users';
 import { leadScope } from '../leads/service';
 
 export const activities = defineRoutes('Activity', '/activities');
 
-activities.get('/', { query: z.object({ ...pageQuery, type: csvList, actorId: z.string().optional(), leadId: z.string().uuid().optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() }), summary: 'Workspace activity log' }, async ({ ctx, query }) => {
+activities.get('/', { query: z.object({ ...pageQuery, type: csvEnum(Object.keys(ACTIVITY_LABELS)), actorId: z.union([z.literal('me'), z.string().uuid()]).optional(), leadId: z.string().uuid().optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() }), summary: 'Workspace activity log' }, async ({ ctx, query }) => {
   const and: Prisma.ActivityWhereInput[] = [];
   // Members without the workspace-wide permission only see activity on leads they can access.
   if (!ctx.can('activity.view_all')) and.push({ OR: [{ actorId: ctx.userId }, { lead: { AND: [leadScope(ctx)] } }] });

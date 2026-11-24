@@ -1,5 +1,4 @@
 import type { Opportunity, Prisma } from '@leadflow/database';
-import { fullName } from '@leadflow/shared';
 import { db } from '../../db';
 import { AppError, badRequest, notFound } from '../../lib/errors';
 import type { Ctx } from '../../http';

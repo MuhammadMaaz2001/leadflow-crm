@@ -4,7 +4,7 @@ import { db } from '../../db';
 import { AppError, forbidden, notFound } from '../../lib/errors';
 import { audit } from '../../lib/audit';
 import { defineRoutes, created } from '../../http';
-import { createInvitation, ensureNotLastOwner } from './service';
+import { assertCanGrant, createInvitation, ensureNotLastOwner } from './service';
 import { assertSeatCapacity } from '../subscriptions/service';
 
 export const members = defineRoutes('Team', '');
@@ -34,11 +34,13 @@ members.patch('/members/:id', { perm: 'team.manage', body: memberUpdateSchema, s
   const target = await db().membership.findFirst({ where: { id: params.id, organizationId: ctx.orgId }, include: { role: true } });
   if (!target) throw notFound('Member');
   if (target.role.systemKey === 'OWNER' && ctx.roleKey !== 'OWNER') throw forbidden('Only an owner can modify another owner');
+  if (target.userId === ctx.userId && body.roleId && ctx.roleKey !== 'OWNER') throw forbidden('You cannot change your own role.', 'PRIVILEGE_ESCALATION');
+  if (target.role.systemKey !== 'OWNER') assertCanGrant(ctx, target.role); // cannot manage someone more powerful than you
   const data: Record<string, unknown> = {};
   if (body.roleId && body.roleId !== target.roleId) {
     const role = await db().role.findFirst({ where: { id: body.roleId, organizationId: ctx.orgId } });
     if (!role) throw notFound('Role');
-    if (role.systemKey === 'OWNER' && ctx.roleKey !== 'OWNER') throw forbidden('Only an owner can grant the Owner role');
+    assertCanGrant(ctx, role);
     if (target.role.systemKey === 'OWNER') await ensureNotLastOwner(ctx, target.id);
     data.roleId = role.id;
   }
@@ -88,6 +90,7 @@ members.get('/roles', { summary: 'List roles' }, async ({ ctx }) => {
 });
 members.post('/roles', { perm: 'roles.manage', feature: 'custom_roles', body: roleSchema, summary: 'Create a custom role' }, async ({ ctx, body }) => {
   const perms = body.permissions.filter((p) => (ALL_PERMISSIONS as string[]).includes(p));
+  assertCanGrant(ctx, { name: body.name, permissions: perms, systemKey: null });
   const role = await db().role.create({ data: { organizationId: ctx.orgId, name: body.name, description: body.description ?? null, permissions: perms } });
   await audit(ctx, 'role.created', 'role', role.id, { name: role.name });
   return created(role);
@@ -98,6 +101,8 @@ members.patch('/roles/:id', { perm: 'roles.manage', body: roleSchema.partial(), 
   if (role.systemKey === 'OWNER') throw forbidden('The Owner role cannot be modified', 'OWNER_ROLE_LOCKED');
   if (role.isSystem && !ctx.plan.features.includes('custom_roles')) throw new AppError(402, 'FEATURE_NOT_IN_PLAN', 'Editing role permissions requires a plan with custom roles.');
   const perms = body.permissions?.filter((p) => (ALL_PERMISSIONS as string[]).includes(p));
+  if (perms) assertCanGrant(ctx, { name: role.name, permissions: perms, systemKey: null });
+  assertCanGrant(ctx, role); // cannot edit a role more powerful than yourself
   const updated = await db().role.update({ where: { id: role.id }, data: { name: role.isSystem ? undefined : body.name, description: body.description, permissions: perms } });
   await audit(ctx, 'role.updated', 'role', role.id, { name: updated.name });
   return updated;

@@ -115,7 +115,7 @@ export default function BillingPage() {
                 {d.features.map((f) => <li key={f.key} className={cn('flex items-center gap-2', !p.features.includes(f.key) && 'text-ink-3 line-through decoration-ink-3/40')}>{p.features.includes(f.key) ? <Check className="size-4 text-ok" /> : <Lock className="size-3.5" />}{f.label}</li>)}
               </ul>
               {manage && <Button className="mt-5" variant={higher && !current ? 'primary' : 'secondary'} disabled={current} loading={change.isPending && change.variables?.planCode === p.code}
-                onClick={async () => { if (!higher && !(await confirm({ title: `Switch to ${p.name}?`, description: 'The change takes effect at the end of the current billing period (immediately if you are on a trial).', confirmLabel: 'Switch plan' }))) return; change.mutate({ planCode: p.code, interval }); }}>{current ? 'Current plan' : higher ? `Upgrade to ${p.name}` : `Switch to ${p.name}`}</Button>}
+                onClick={async () => { if (!higher && !(await confirm({ title: `Switch to ${p.name}?`, description: s.status === 'TRIALING' ? 'An invoice is issued now. The new plan only starts once a payment has been recorded — until then your trial continues.' : p.code === 'free' ? 'You move to the Free plan at the end of the current billing period.' : 'The change takes effect at the end of the current billing period.', confirmLabel: 'Switch plan' }))) return; change.mutate({ planCode: p.code, interval }); }}>{current ? 'Current plan' : higher ? `Upgrade to ${p.name}` : `Switch to ${p.name}`}</Button>}
             </Card>
           );
         })}

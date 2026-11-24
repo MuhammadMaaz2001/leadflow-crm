@@ -2,7 +2,6 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Activity as ActivityIcon, ScrollText } from 'lucide-react';
-import { ACTIVITY_LABELS } from '@leadflow/shared';
 import { api } from '@/lib/api';
 import { useOrg, useT } from '@/lib/session';
 import { fmtDateTime, timeAgo } from '@/lib/format';

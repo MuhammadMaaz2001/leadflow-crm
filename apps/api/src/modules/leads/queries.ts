@@ -2,14 +2,14 @@ import type { Lead, Prisma } from '@leadflow/database';
 import { fullName } from '@leadflow/shared';
 import { z } from 'zod';
 import { db } from '../../db';
-import { boolQuery, csvList, pageQuery } from '../../lib/pagination';
+import { boolQuery, csvEnum, csvUuids, pageQuery } from '../../lib/pagination';
 import { lite, usersById } from '../../lib/users';
 import type { Ctx } from '../../http';
 import { leadScope } from './service';
 
 export const leadFilterQuery = z.object({
   q: z.string().trim().max(100).optional(),
-  status: csvList, priorityId: csvList, sourceId: csvList, assignedToId: csvList, tagId: csvList,
+  status: csvEnum(['NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'LOST']), priorityId: csvUuids(), sourceId: csvUuids(), assignedToId: csvUuids('unassigned'), tagId: csvUuids(),
   createdFrom: z.coerce.date().optional(), createdTo: z.coerce.date().optional(),
   archived: z.enum(['false', 'true', 'all']).default('false'),
   hasOverdueFollowUp: boolQuery, noFollowUp: boolQuery, uncontacted: boolQuery,

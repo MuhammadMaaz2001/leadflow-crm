@@ -86,3 +86,23 @@ describe('Dialog unsaved-changes guard', () => {
     expect(await screen.findByText('closed')).toBeInTheDocument();
   });
 });
+
+describe('ErrorState and table error handling', () => {
+  it('explains a forbidden response and offers retry for server errors', async () => {
+    const { ErrorState } = await import('@/components/ui/data');
+    const onRetry = vi.fn();
+    const { rerender } = render(<ErrorState error={Object.assign(new Error('nope'), { status: 403 })} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Access denied');
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
+    rerender(<ErrorState error={Object.assign(new Error('boom'), { status: 500 })} onRetry={onRetry} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong on our side');
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('DataTable shows the error state (not an empty state) when loading failed with no rows', () => {
+    const cols: Column<{ id: string; n: string }>[] = [{ key: 'n', header: 'Name', cell: (r) => r.n }];
+    render(<DataTable columns={cols} rows={[]} error={new Error('down')} onRetry={() => undefined} />);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+});

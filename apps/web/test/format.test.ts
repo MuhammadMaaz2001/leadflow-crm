@@ -40,3 +40,12 @@ describe('shared validation used by the forms', () => {
     expect(normalizePhone('12')).toBeNull();
   });
 });
+
+describe('timezones', () => {
+  it('lists UTC first and keeps a stored value that is missing from the list', async () => {
+    const { TIMEZONES, withCurrent } = await import('@/lib/format');
+    expect(TIMEZONES[0]).toBe('UTC');
+    expect(withCurrent(TIMEZONES, 'Mars/Olympus')[0]).toBe('Mars/Olympus');
+    expect(withCurrent(TIMEZONES, 'UTC')).toBe(TIMEZONES);
+  });
+});

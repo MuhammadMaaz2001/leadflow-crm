@@ -5,6 +5,7 @@ import { CURRENCIES, CUSTOM_FIELD_TYPES, DATE_FORMATS, INDUSTRIES, PERMISSION_GR
 import { api } from '@/lib/api';
 import { useCustomFields, usePipelines, type CustomField, type Lookup, type Pipeline, type Stage } from '@/lib/hooks';
 import { errMsg, useAct, useOrg, useT } from '@/lib/session';
+import { TIMEZONES, withCurrent } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox, Field, FormError, Input, Select, Switch, Textarea } from '@/components/ui/form';
@@ -14,7 +15,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
 import { NotificationPrefs } from '../notifications/page';
 import Link from 'next/link';
 
-const zones = (() => { try { return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone'); } catch { return ['UTC']; } })();
 
 function CompanyTab() {
   const { org } = useOrg();
@@ -42,9 +42,9 @@ function CompanyTab() {
           <div className="flex items-center gap-4">
             <label className="relative flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-strong bg-subtle text-ink-3 hover:border-accent">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {f.logoData ? <img src={f.logoData} alt="Company logo" className="size-full object-cover" /> : <ImagePlus className="size-5" />}<input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="sr-only" aria-label="Upload logo" onChange={(e) => onLogo(e.target.files?.[0])} />
+              {f.logoData ? <img src={f.logoData} alt="Company logo" className="size-full object-cover" /> : <ImagePlus className="size-5" />}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" aria-label="Upload logo" onChange={(e) => onLogo(e.target.files?.[0])} />
             </label>
-            <div className="text-xs text-ink-3"><p className="text-[13px] font-medium text-ink">Company logo</p>PNG, JPG, SVG or WebP up to 400 KB.{f.logoData && <button className="ml-2 text-bad hover:underline" onClick={() => set({ logoData: null })}>Remove</button>}</div>
+            <div className="text-xs text-ink-3"><p className="text-[13px] font-medium text-ink">Company logo</p>PNG, JPG, WebP or GIF up to 400 KB.{f.logoData && <button className="ml-2 text-bad hover:underline" onClick={() => set({ logoData: null })}>Remove</button>}</div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Company name" required><Input aria-label="Company name" value={f.name} onChange={(e) => set({ name: e.target.value })} /></Field>
@@ -60,7 +60,7 @@ function CompanyTab() {
       <Card>
         <CardHeader title="Regional settings" description="Dates, reporting windows and money formatting use these." />
         <div className="grid gap-4 p-4 sm:grid-cols-3">
-          <Field label="Timezone"><Select aria-label="Timezone" value={f.timezone} onChange={(e) => set({ timezone: e.target.value })}>{zones.map((z) => <option key={z}>{z}</option>)}</Select></Field>
+          <Field label="Timezone"><Select aria-label="Timezone" value={f.timezone} onChange={(e) => set({ timezone: e.target.value })}>{withCurrent(TIMEZONES, f.timezone).map((z) => <option key={z}>{z}</option>)}</Select></Field>
           <Field label="Currency"><Select aria-label="Currency" value={f.currency} onChange={(e) => set({ currency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</Select></Field>
           <Field label="Date format"><Select aria-label="Date format" value={f.dateFormat} onChange={(e) => set({ dateFormat: e.target.value })}>{DATE_FORMATS.map((c) => <option key={c}>{c}</option>)}</Select></Field>
         </div>
@@ -169,6 +169,8 @@ function RoleDialog({ role, onClose }: { role: RoleRow | null; onClose: () => vo
   );
 }
 
+function usePipelineAct<T>(fn: (v: T) => Promise<unknown>, success?: string) { return useAct(fn, { success, invalidate: ['pipelines'] }); }
+
 function PipelinesTab() {
   const confirm = useConfirm();
   const { has } = useOrg();
@@ -177,14 +179,13 @@ function PipelinesTab() {
   const pipe: Pipeline | undefined = q.data?.find((p) => p.id === sel) ?? q.data?.[0];
   const [newStage, setNewStage] = React.useState('');
   const [newPipe, setNewPipe] = React.useState('');
-  const act = <T,>(fn: (v: T) => Promise<unknown>, success?: string) => useAct(fn, { success, invalidate: ['pipelines'] });
-  const addStage = act(() => api.post(`/pipelines/${pipe!.id}/stages`, { name: newStage }), 'Stage added');
-  const patchStage = act((v: { id: string; body: Record<string, unknown> }) => api.patch(`/stages/${v.id}`, v.body), 'Stage updated');
-  const delStage = act((id: string) => api.del(`/stages/${id}`), 'Stage deleted');
-  const reorder = act((ids: string[]) => api.post(`/pipelines/${pipe!.id}/stages/reorder`, { stageIds: ids }));
-  const createPipe = act(() => api.post('/pipelines', { name: newPipe }), 'Pipeline created');
-  const patchPipe = act((v: { id: string; body: Record<string, unknown> }) => api.patch(`/pipelines/${v.id}`, v.body), 'Pipeline updated');
-  const archive = act((id: string) => api.del(`/pipelines/${id}`), 'Pipeline archived');
+  const addStage = usePipelineAct(() => api.post(`/pipelines/${pipe!.id}/stages`, { name: newStage }), 'Stage added');
+  const patchStage = usePipelineAct((v: { id: string; body: Record<string, unknown> }) => api.patch(`/stages/${v.id}`, v.body), 'Stage updated');
+  const delStage = usePipelineAct((id: string) => api.del(`/stages/${id}`), 'Stage deleted');
+  const reorder = usePipelineAct((ids: string[]) => api.post(`/pipelines/${pipe!.id}/stages/reorder`, { stageIds: ids }));
+  const createPipe = usePipelineAct(() => api.post('/pipelines', { name: newPipe }), 'Pipeline created');
+  const patchPipe = usePipelineAct((v: { id: string; body: Record<string, unknown> }) => api.patch(`/pipelines/${v.id}`, v.body), 'Pipeline updated');
+  const archive = usePipelineAct((id: string) => api.del(`/pipelines/${id}`), 'Pipeline archived');
   React.useEffect(() => { if (q.data && !q.data.find((p) => p.id === sel)) setSel(q.data[0]?.id ?? ''); }, [q.data, sel]);
   if (!pipe) return <Skeleton className="h-64" />;
   const move = (s: Stage, dir: -1 | 1) => { const ids = pipe.stages.map((x) => x.id); const i = ids.indexOf(s.id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j]!, ids[i]!]; reorder.mutate(ids); };

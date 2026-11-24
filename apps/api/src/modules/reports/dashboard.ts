@@ -1,6 +1,6 @@
 import { Prisma } from '@leadflow/database';
 import { fullName } from '@leadflow/shared';
-import { addDays, differenceInCalendarDays, format as fmt } from 'date-fns';
+import { addDays, differenceInCalendarDays } from 'date-fns';
 import { db } from '../../db';
 import { resolveRange } from '../../lib/dates';
 import { lite, usersById } from '../../lib/users';

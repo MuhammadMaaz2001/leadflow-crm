@@ -85,7 +85,8 @@ test('lead management: search, filters, saved views, import with error report, b
     await page.getByRole('button', { name: 'Create anyway' }).click();
     await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}/);
     await page.goto('/leads');
-    await page.getByRole('button', { name: 'Duplicates' }).click();
+    await page.getByRole('button', { name: 'More lead tools' }).click();
+    await page.getByRole('menuitem', { name: /Find & merge duplicates/ }).click();
     const dlg = page.getByRole('dialog', { name: 'Duplicate leads' });
     const group = dlg.locator('div.rounded-xl').filter({ hasText: email });
     await expect(group.first()).toBeVisible();

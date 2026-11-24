@@ -214,9 +214,10 @@ function UserMenu() {
 
 function StatusBanner() {
   const { org } = useOrg();
+  const [now] = React.useState(() => Date.now());
   if (!org?.subscription) return null;
   const s = org.subscription;
-  const days = Math.ceil((new Date(s.trialEndsAt ?? s.currentPeriodEnd).getTime() - Date.now()) / 86_400_000);
+  const days = Math.ceil((new Date(s.trialEndsAt ?? s.currentPeriodEnd).getTime() - now) / 86_400_000);
   let tone: 'warn' | 'bad' | 'info' | null = null; let text = '';
   if (org.organization.status === 'SUSPENDED') { tone = 'bad'; text = 'This workspace is suspended.'; }
   else if (s.status === 'EXPIRED') { tone = 'bad'; text = 'Your subscription has expired — the workspace is read-only until the outstanding invoice is paid.'; }
@@ -245,6 +246,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (org && current && !org.organization.onboardingCompletedAt && current.role.key === 'OWNER' && path !== '/onboarding') router.replace(`/onboarding?org=${current.organization.id}`);
   }, [org, current, path, router]);
 
+  React.useEffect(() => { if (typeof document !== 'undefined') document.title = `${CRUMBS[path.split('/').filter(Boolean)[0] ?? ''] ?? 'LeadFlow'} · LeadFlow`; }, [path]);
   if (me.isLoading || !current) {
     return <div className="flex h-dvh items-center justify-center"><div className="flex flex-col items-center gap-3"><Logo /><Spinner /></div></div>;
   }
@@ -255,6 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh overflow-hidden">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[80] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:shadow-pop">Skip to content</a>
       <aside className={cn('hidden shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-200 lg:flex', collapsed ? 'w-[60px]' : 'w-[248px]')}>
         <div className={cn('flex h-12 items-center border-b border-line px-3', collapsed ? 'justify-center' : 'justify-between')}>
           <Link href="/dashboard" aria-label="LeadFlow home"><Logo compact={collapsed} /></Link>

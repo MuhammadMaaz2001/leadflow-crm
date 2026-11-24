@@ -79,6 +79,7 @@ export async function resolveSession(req: Request): Promise<SessionUser | null> 
   if (!token) return null;
   const s = await prisma.session.findUnique({ where: { tokenHash: sha256(token) }, include: { user: true } });
   if (!s || s.revokedAt || s.expiresAt < new Date() || !s.user.isActive) return null;
+  if (Date.now() - s.lastSeenAt.getTime() > config.sessionIdleDays * 86_400_000) return null; // idle timeout
   if (Date.now() - s.lastSeenAt.getTime() > 60_000) {
     prisma.session.update({ where: { id: s.id }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
   }
@@ -230,6 +231,18 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
   const msg = err instanceof Error ? err.message : String(err);
   if (/row-level security|violates check constraint/i.test(msg)) {
     res.status(400).json({ error: { code: 'CONSTRAINT_VIOLATION', message: /leads_contact_required/.test(msg) ? 'Provide at least an email or a phone number' : 'The request violates a data integrity rule' } });
+    return;
+  }
+  if ((err as { type?: string })?.type === 'entity.too.large') {
+    res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The request body is too large.' } });
+    return;
+  }
+  if (err instanceof Prisma.PrismaClientValidationError || (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2023')) {
+    res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'One of the supplied values has an invalid format.' } });
+    return;
+  }
+  if ((err as { code?: string })?.code === 'LIMIT_FILE_SIZE') {
+    res.status(413).json({ error: { code: 'FILE_TOO_LARGE', message: 'The file is too large (limit 8 MB).' } });
     return;
   }
   if ((err as { type?: string })?.type === 'entity.parse.failed') {

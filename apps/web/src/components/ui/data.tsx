@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, RotateCw } from 'lucide-react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 import { initials } from '@/lib/format';
@@ -38,6 +38,19 @@ export function EmptyState({ icon, title, description, action, className }: { ic
       <p className="text-sm font-semibold text-ink">{title}</p>
       {description && <p className="mt-1 max-w-sm text-[13px] text-ink-2">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+export function ErrorState({ error, onRetry, className }: { error?: unknown; onRetry?: () => void; className?: string }) {
+  const status = (error as { status?: number } | null)?.status;
+  const msg = status === 403 ? "You don't have access to this." : status === 402 ? (error as Error).message : status && status >= 500 ? 'Something went wrong on our side. Please try again.' : (error as Error | undefined)?.message ?? 'We could not load this.';
+  return (
+    <div role="alert" className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
+      <div className="mb-3 flex size-11 items-center justify-center rounded-full bg-bad-soft text-bad"><AlertTriangle className="size-5" /></div>
+      <p className="text-sm font-semibold text-ink">{status === 403 ? 'Access denied' : 'Couldn’t load this view'}</p>
+      <p className="mt-1 max-w-sm text-[13px] text-ink-2">{msg}</p>
+      {onRetry && <Button className="mt-4" onClick={onRetry}><RotateCw className="size-3.5" />Try again</Button>}
     </div>
   );
 }

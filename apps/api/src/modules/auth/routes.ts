@@ -11,6 +11,7 @@ import { sendEmail } from '../../lib/email';
 import { defineRoutes, resolveSession } from '../../http';
 
 export const auth = defineRoutes('Authentication', '/auth');
+const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8e1FJ1m3pQ5s0m9m0d4cz9bdF3mG8i';
 
 function setSessionCookie(res: Response, token: string) {
   res.cookie(config.cookieName, token, {
@@ -66,7 +67,7 @@ auth.post('/register', { auth: 'public', body: registerSchema.extend({ inviteTok
   }
   const link = verifiedViaInvite ? null : await issueVerification(user.id, user.email);
   res.status(201);
-  return { id: user.id, email: user.email, verificationRequired: !verifiedViaInvite, ...(config.isProd ? {} : { devVerificationLink: link, devNote: 'Development only: in production this link is delivered by email.' }) };
+  return { id: user.id, email: user.email, verificationRequired: !verifiedViaInvite, ...(config.devTools ? { devVerificationLink: link, devNote: 'Development only: in production this link is delivered by email.' } : {}) };
 });
 
 auth.post('/verify-email', { auth: 'public', body: z.object({ token: z.string().min(10) }), summary: 'Confirm an email address' }, async ({ body }) => {
@@ -81,17 +82,18 @@ auth.post('/resend-verification', { auth: 'public', body: forgotSchema, summary:
   const u = await db().user.findUnique({ where: { email: body.email } });
   let link: string | null = null;
   if (u && !u.emailVerifiedAt) link = await issueVerification(u.id, u.email);
-  return { sent: true, ...(config.isProd ? {} : { devVerificationLink: link }) };
+  return { sent: true, ...(config.devTools ? { devVerificationLink: link } : {}) };
 });
 
 auth.post('/login', { auth: 'public', body: loginSchema, summary: 'Sign in (sets an httpOnly session cookie)' }, async ({ body, req, res }) => {
   const invalid = () => unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
   const u = await db().user.findUnique({ where: { email: body.email } });
-  if (!u || !u.isActive) throw invalid();
+  if (!u || !u.isActive) { await verifyPassword(body.password, DUMMY_HASH); throw invalid(); } // constant-ish time: no account enumeration via timing
   if (u.lockedUntil && u.lockedUntil > new Date()) throw new AppError(429, 'ACCOUNT_LOCKED', 'Too many failed attempts. Try again in a few minutes.');
   if (!(await verifyPassword(body.password, u.passwordHash))) {
     const failed = u.failedLoginCount + 1;
-    await db().user.update({ where: { id: u.id }, data: { failedLoginCount: failed, lockedUntil: failed >= 5 ? new Date(Date.now() + 15 * 60_000) : null } });
+    // Persist OUTSIDE the request transaction: throwing below rolls that transaction back, which previously discarded the counter.
+    await prisma.user.update({ where: { id: u.id }, data: { failedLoginCount: failed, lockedUntil: failed >= 5 ? new Date(Date.now() + 15 * 60_000) : null } });
     throw invalid();
   }
   if (!u.emailVerifiedAt) throw new AppError(403, 'EMAIL_NOT_VERIFIED', 'Please verify your email address before signing in.');
@@ -123,7 +125,7 @@ auth.post('/forgot-password', { auth: 'public', body: forgotSchema, summary: 'Re
     await sendEmail({ to: u.email, subject: 'Reset your LeadFlow password', body: 'Use the link below to choose a new password. It expires in one hour.', link });
   }
   // Never reveal whether the email exists.
-  return { sent: true, ...(config.isProd ? {} : { devResetLink: link }) };
+  return { sent: true, ...(config.devTools ? { devResetLink: link } : {}) };
 });
 
 auth.post('/reset-password', { auth: 'public', body: resetSchema, summary: 'Set a new password using a reset token' }, async ({ body }) => {

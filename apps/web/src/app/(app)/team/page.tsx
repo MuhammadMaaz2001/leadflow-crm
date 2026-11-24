@@ -12,7 +12,7 @@ import { Field, FormError, Input, Select, Switch } from '@/components/ui/form';
 import { Avatar, Badge, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/data';
 import { DataTable, type Column } from '@/components/ui/table';
 import { Dialog, Sheet, useConfirm } from '@/components/ui/overlay';
-import { DropdownContent, DropdownItem, DropdownMenu, DropdownSeparator, DropdownTrigger, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
+import { DropdownContent, DropdownItem, DropdownMenu, DropdownTrigger, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
 
 interface Role { id: string; name: string; systemKey: string | null; memberCount: number }
 interface Invite { id: string; email: string; role: { id: string; name: string }; status: string; expiresAt: string; createdAt: string }
@@ -101,7 +101,7 @@ export default function TeamPage() {
       <PageHeader title="Team members" description={members.data ? `${active} active · ${manage ? 'manage roles, access and workload' : 'workload and roles'}` : undefined} actions={manage && <Button variant="primary" onClick={() => setInviteOpen(true)}><UserPlus className="size-3.5" />Invite member</Button>} />
       <Tabs defaultValue="members">
         <TabsList><TabsTrigger value="members">Members</TabsTrigger>{manage && <TabsTrigger value="invites">Invitations {invites.data?.filter((i) => i.status === 'PENDING').length ? <Badge tone="accent" className="ml-1">{invites.data.filter((i) => i.status === 'PENDING').length}</Badge> : null}</TabsTrigger>}</TabsList>
-        <TabsContent value="members" className="pt-4"><Card><DataTable columns={columns} rows={members.data} loading={members.isLoading} onRowClick={setSel} empty={<EmptyState icon={<Users />} title="No members" />} /></Card></TabsContent>
+        <TabsContent value="members" className="pt-4"><Card><DataTable columns={columns} rows={members.data} loading={members.isLoading} error={members.error} onRetry={() => members.refetch()} onRowClick={setSel} empty={<EmptyState icon={<Users />} title="No members" />} /></Card></TabsContent>
         {manage && <TabsContent value="invites" className="pt-4"><Card>
           {!invites.data?.length ? <EmptyState icon={<Mail />} title="No invitations" description="Invite colleagues to collaborate in this workspace." action={<Button variant="primary" onClick={() => setInviteOpen(true)}>Invite member</Button>} /> : (
             <ul className="divide-y divide-line">{invites.data.map((i) => <li key={i.id} className="flex flex-wrap items-center gap-3 px-4 py-3"><Avatar name={i.email} /><div className="min-w-0 flex-1"><p className="truncate text-[13px] font-medium">{i.email}</p><p className="text-xs text-ink-3">{i.role.name} · sent {timeAgo(i.createdAt)}</p></div><Badge tone={i.status === 'PENDING' ? 'accent' : i.status === 'ACCEPTED' ? 'ok' : 'neutral'}>{i.status.toLowerCase()}</Badge>{i.status !== 'ACCEPTED' && <div className="flex gap-1.5"><Button size="sm" onClick={() => resend.mutate(i.id)}><RefreshCw className="size-3.5" />New link</Button>{i.status === 'PENDING' && <Button size="sm" variant="dangerGhost" onClick={() => revoke.mutate(i.id)}><Trash2 className="size-3.5" />Revoke</Button>}</div>}</li>)}</ul>

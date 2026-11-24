@@ -4,7 +4,7 @@ import type { Prisma } from '@leadflow/database';
 import { db } from '../../db';
 import { badRequest, notFound } from '../../lib/errors';
 import { created, defineRoutes, paged } from '../../http';
-import { csvList, pageMeta, paginate, pageQuery } from '../../lib/pagination';
+import { csvEnum, csvUuids, pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { lite, usersById } from '../../lib/users';
 import { logActivity } from '../activities/service';
 import { assertActiveMember, getLeadOr404 } from '../leads/service';
@@ -24,7 +24,7 @@ async function getTask(ctx: Ctx, id: string) {
 
 const listQuery = z.object({
   ...pageQuery, scope: z.enum(['mine', 'team', 'overdue', 'completed', 'all']).default('mine'),
-  assignedToId: csvList, status: csvList, priority: csvList, leadId: z.string().uuid().optional(), opportunityId: z.string().uuid().optional(), q: z.string().trim().max(100).optional(),
+  assignedToId: csvUuids('me'), status: csvEnum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']), priority: csvEnum(['LOW', 'MEDIUM', 'HIGH']), leadId: z.string().uuid().optional(), opportunityId: z.string().uuid().optional(), q: z.string().trim().max(100).optional(),
   sort: z.enum(['dueAt', 'createdAt', 'priority']).default('dueAt'), order: z.enum(['asc', 'desc']).default('asc'),
 });
 

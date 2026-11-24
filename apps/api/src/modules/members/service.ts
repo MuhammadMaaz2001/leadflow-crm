@@ -7,10 +7,18 @@ import { audit } from '../../lib/audit';
 import { assertSeatCapacity } from '../subscriptions/service';
 import type { Ctx, SessionUser } from '../../http';
 
+/** No privilege escalation: you can only grant roles whose permissions you hold yourself (owners can grant anything). */
+export function assertCanGrant(ctx: Ctx, role: { name: string; permissions: string[]; systemKey: string | null }) {
+  if (ctx.roleKey === 'OWNER') return;
+  if (role.systemKey === 'OWNER') throw forbidden('Only an owner can grant the Owner role', 'PRIVILEGE_ESCALATION');
+  const missing = role.permissions.filter((p) => !ctx.permissions.includes(p));
+  if (missing.length) throw forbidden(`You cannot grant "${role.name}": it includes permissions you do not have (${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}).`, 'PRIVILEGE_ESCALATION');
+}
+
 export async function createInvitation(ctx: Ctx, email: string, roleId: string) {
   const role = await db().role.findFirst({ where: { id: roleId, organizationId: ctx.orgId } });
   if (!role) throw notFound('Role');
-  if (role.systemKey === 'OWNER' && ctx.roleKey !== 'OWNER') throw forbidden('Only an owner can invite another owner');
+  assertCanGrant(ctx, role);
   const existingUser = await db().user.findUnique({ where: { email } });
   if (existingUser) {
     const m = await db().membership.findFirst({ where: { organizationId: ctx.orgId, userId: existingUser.id } });
@@ -25,7 +33,7 @@ export async function createInvitation(ctx: Ctx, email: string, roleId: string) 
   const link = `${config.webUrl}/accept-invite?token=${token}`;
   await sendEmail({ to: email, subject: `${ctx.user.name} invited you to ${ctx.org.name} on LeadFlow`, body: `You have been invited to join ${ctx.org.name} as ${role.name}.`, link });
   await audit(ctx, 'member.invited', 'invitation', inv.id, { email, role: role.name });
-  return { invitation: inv, link: config.isProd ? undefined : link };
+  return { invitation: inv, link: config.devTools ? link : undefined };
 }
 
 export async function acceptInvitation(user: SessionUser, token: string) {

@@ -47,3 +47,11 @@ export const toLocalInput = (d: Date | string) => format(new Date(d), "yyyy-MM-d
 export const fromLocalInput = (v: string) => new Date(v).toISOString();
 export const titleCase = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 export const pct = (n: number | null | undefined) => `${(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`;
+
+/** IANA zones for pickers. `Intl.supportedValuesOf` omits "UTC" (the platform default), so it is added explicitly. */
+export const TIMEZONES: string[] = (() => {
+  let zones: string[];
+  try { zones = (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf('timeZone'); } catch { zones = ['America/New_York', 'Europe/London', 'Asia/Karachi', 'Asia/Dubai']; }
+  return ['UTC', ...zones.filter((z) => z !== 'UTC')];
+})();
+export const withCurrent = (list: string[], current?: string | null) => (current && !list.includes(current) ? [current, ...list] : list);

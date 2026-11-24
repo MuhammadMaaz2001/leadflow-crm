@@ -112,7 +112,7 @@ function Inner() {
         </div>
         {isCal ? <div className="p-4"><CalendarView onOpen={openEvent} onCreate={can('tasks.manage') ? () => setCreating(true) : undefined} /></div> : (
           <>
-            <DataTable columns={columns} rows={q.data?.data} loading={q.isLoading} onRowClick={(t) => setOpenId(t.id)}
+            <DataTable columns={columns} rows={q.data?.data} loading={q.isLoading} error={q.error} onRetry={() => q.refetch()} onRowClick={(t) => setOpenId(t.id)}
               empty={<EmptyState icon={<ClipboardCheck />} title={f.scope === 'completed' ? 'No completed tasks yet' : f.scope === 'overdue' ? 'No overdue tasks' : 'No tasks here'} description="Create tasks to track work that isn't a scheduled conversation." action={can('tasks.manage') ? <Button variant="primary" onClick={() => setCreating(true)}><Plus className="size-3.5" />New task</Button> : undefined} />} />
             {total > 0 && <Pagination page={Number(f.page)} pageSize={Number(f.pageSize)} total={total} noun="tasks" onPage={(p) => setF({ page: String(p) }, false)} onPageSize={(n) => setF({ pageSize: String(n) })} />}
           </>

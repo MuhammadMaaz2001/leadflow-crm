@@ -23,8 +23,11 @@ cp .env.example .env
 | `APP_DB_PASSWORD`, `PLATFORM_DB_PASSWORD` | Passwords applied to the two roles by `npm run db:migrate` (never stored in migration SQL) |
 | `REDIS_URL` | BullMQ connection |
 | `JOBS_INLINE` | `true` runs jobs in-process (tests / single process); `false` uses BullMQ + `worker` |
-| `API_PORT`, `API_URL`, `WEB_URL` | Ports/URLs (the web app proxies `/api/*` to `API_URL`, so cookies are first-party) |
-| `SESSION_COOKIE_NAME`, `SESSION_TTL_DAYS` | httpOnly session cookie settings |
+| `API_PORT`, `API_URL`, `WEB_URL` | Ports/URLs (the web app proxies `/api/*` to `API_URL`, so cookies are first-party). `WEB_URL` may be a comma-separated list: every entry is an allowed browser origin for the CSRF origin guard and CORS |
+| `SESSION_COOKIE_NAME`, `SESSION_TTL_DAYS`, `SESSION_IDLE_DAYS` | httpOnly session cookie settings; sessions also expire after `SESSION_IDLE_DAYS` (default 7) without use |
+| `NODE_ENV` | **Fail-safe**: anything other than `development` or `test` is treated as production (secure cookies, no dev mailbox, no dev links, no `/api/dev/*`). `npm run dev`, `dev:worker` and `seed` set `development` explicitly; do not put it in `.env` (it also changes how `next build` behaves) |
+| `ALLOW_DEV_TOOLS` | Set to `false` to disable the dev mailbox/dev links even when `NODE_ENV=development` |
+| `DISABLE_RATE_LIMIT` | `true` turns the auth/API rate limiters off. Only used by `npm run dev:e2e` for Playwright runs; never set it in a deployed environment |
 | `EMAIL_TRANSPORT` | `dev` stores emails in the DB mailbox |
 
 In production use strong, unique passwords, TLS, `NODE_ENV=production`, and keep all of these in a secret manager.

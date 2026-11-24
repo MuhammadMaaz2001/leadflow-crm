@@ -35,7 +35,7 @@ export default function OrgsPage() {
           <div className="w-36"><Select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">Any status</option><option value="ACTIVE">Active</option><option value="SUSPENDED">Suspended</option></Select></div>
           <div className="w-36"><Select aria-label="Plan" value={plan} onChange={(e) => { setPlan(e.target.value); setPage(1); }}><option value="">Any plan</option><option value="free">Free</option><option value="starter">Starter</option><option value="professional">Professional</option></Select></div>
         </div>
-        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} onRowClick={(o) => router.push(`/platform/organizations/${o.id}`)} empty={<EmptyState icon={<Building2 />} title="No organizations match" />} />
+        <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} error={res.error} onRetry={() => res.refetch()} onRowClick={(o) => router.push(`/platform/organizations/${o.id}`)} empty={<EmptyState icon={<Building2 />} title="No organizations match" />} />
         {(res.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={res.data!.meta.total} noun="organizations" onPage={setPage} />}
       </Card>
     </>

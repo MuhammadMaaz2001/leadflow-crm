@@ -23,7 +23,7 @@ export default function UsagePage() {
   return (
     <>
       <PageHeader title="Usage statistics" description="Lead and seat consumption against plan limits. Organizations nearest their limits appear first." />
-      <Card><DataTable columns={columns} rows={q.data?.data} loading={q.isLoading} empty={<EmptyState icon={<Gauge />} title="No usage yet" />} />{(q.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={q.data!.meta.total} noun="organizations" onPage={setPage} />}</Card>
+      <Card><DataTable columns={columns} rows={q.data?.data} loading={q.isLoading} error={q.error} onRetry={() => q.refetch()} empty={<EmptyState icon={<Gauge />} title="No usage yet" />} />{(q.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={q.data!.meta.total} noun="organizations" onPage={setPage} />}</Card>
     </>
   );
 }
