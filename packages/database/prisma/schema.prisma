@@ -296,7 +296,7 @@ model Organization {
   notifPrefs      NotificationPreference[]
   automationRules AutomationRule[]
   executions      AutomationExecution[]
-  subscriptions   Subscription[]
+  subscription    Subscription?
   subscriptionEvents SubscriptionEvent[]
   invoices        Invoice[]
   usageRecords    UsageRecord[]
