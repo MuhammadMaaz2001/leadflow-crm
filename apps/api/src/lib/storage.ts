@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { createReadStream } from 'node:fs';
+import type { Readable } from 'node:stream';
+import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { config } from '../config';
 import { log } from './logger';
+import { storageDuration, storageOps } from './metrics';
 import { AppError } from './errors';
 
 /**
@@ -17,6 +22,10 @@ export interface ObjectStorage {
   put(key: string, body: Buffer, contentType: string): Promise<void>;
   get(key: string): Promise<{ body: Buffer; contentType: string } | null>;
   delete(key: string): Promise<void>;
+  /** Stream of an object (large files are never loaded into memory whole); falls back to `get` when an adapter has none. */
+  getStream?(key: string): Promise<Readable | null>;
+  /** Objects under a prefix (bounded). Used by the orphan sweeper. */
+  list(prefix: string, limit?: number): Promise<Array<{ key: string; lastModified: Date }>>;
 }
 
 export type S3Options = typeof config.s3;
@@ -46,16 +55,101 @@ export class S3Storage implements ObjectStorage {
     }
   }
   async delete(key: string) { await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key })); }
+  async getStream(key: string) {
+    try { const r = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key })); return r.Body as Readable; }
+    catch (e) { if ((e as { name?: string }).name === 'NoSuchKey' || (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) return null; throw e; }
+  }
+  async list(prefix: string, limit = 5000) {
+    const out: Array<{ key: string; lastModified: Date }> = [];
+    let token: string | undefined;
+    do {
+      const r = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token, MaxKeys: Math.min(1000, limit - out.length) }));
+      for (const o of r.Contents ?? []) if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified ?? new Date() });
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token && out.length < limit);
+    return out;
+  }
 }
 
+/**
+ * Local-disk adapter for DEVELOPMENT and TESTS only (single machine, no replication). Production must use S3-compatible storage:
+ * `getAttachmentStorage()` refuses to fall back to disk when NODE_ENV is production. Keys are validated and every resolved path must stay
+ * inside the storage root, so a hostile key can never escape it.
+ */
+export class LocalDiskStorage implements ObjectStorage {
+  name = 'local';
+  private root: string;
+  constructor(dir: string = config.localStorageDir) { this.root = path.resolve(dir); }
+  private file(key: string) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(key) || key.includes('..')) throw new Error('invalid storage key');
+    const p = path.resolve(this.root, key);
+    if (!p.startsWith(this.root + path.sep)) throw new Error('invalid storage key');
+    return p;
+  }
+  async put(key: string, body: Buffer, contentType: string) {
+    const p = this.file(key);
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.writeFile(p, body); await fs.writeFile(`${p}.type`, contentType);
+  }
+  async get(key: string) {
+    try { const p = this.file(key); return { body: await fs.readFile(p), contentType: await fs.readFile(`${p}.type`, 'utf8').catch(() => 'application/octet-stream') }; }
+    catch (e) { if ((e as { code?: string }).code === 'ENOENT') return null; throw e; }
+  }
+  async delete(key: string) { const p = this.file(key); await fs.rm(p, { force: true }); await fs.rm(`${p}.type`, { force: true }); }
+  async getStream(key: string) { const p = this.file(key); try { await fs.access(p); } catch { return null; } return createReadStream(p); }
+  async list(prefix: string, limit = 5000) {
+    const out: Array<{ key: string; lastModified: Date }> = [];
+    const base = path.resolve(this.root, prefix);
+    if (!base.startsWith(this.root)) return out;
+    const walk = async (dir: string) => {
+      for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        if (out.length >= limit) return;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(full);
+        else if (!e.name.endsWith('.type')) out.push({ key: path.relative(this.root, full).split(path.sep).join('/'), lastModified: (await fs.stat(full)).mtime });
+      }
+    };
+    await walk(base);
+    return out;
+  }
+}
+
+/** Counts and times every storage operation (success / error) without changing behaviour. */
+const instrumented = new WeakMap<ObjectStorage, ObjectStorage>();
+function instrument(s: ObjectStorage): ObjectStorage {
+  const hit = instrumented.get(s); if (hit) return hit;
+  const run = async <T,>(op: string, fn: () => Promise<T>): Promise<T> => {
+    const end = storageDuration.startTimer({ op });
+    try { const r = await fn(); storageOps.inc({ op, result: 'ok' }); return r; } catch (e) { storageOps.inc({ op, result: 'error' }); throw e; } finally { end(); }
+  };
+  const w: ObjectStorage = {
+    name: s.name,
+    put: (k, b, t) => run('put', () => s.put(k, b, t)), get: (k) => run('get', () => s.get(k)), delete: (k) => run('delete', () => s.delete(k)),
+    list: (p, l) => run('list', () => s.list(p, l)), ...(s.getStream ? { getStream: (k: string) => run('get_stream', () => s.getStream!(k)) } : {}),
+  };
+  instrumented.set(s, w); return w;
+}
 let override: ObjectStorage | null = null;
 let s3: S3Storage | null = null;
 export const setObjectStorage = (s: ObjectStorage | null) => { override = s; };
 export function getObjectStorage(): ObjectStorage | null {
-  if (override) return override;
+  if (override) return instrument(override);
   if (config.storageProvider !== 's3') return null;
-  return (s3 ??= new S3Storage());
+  return instrument((s3 ??= new S3Storage()));
 }
+let local: LocalDiskStorage | null = null;
+/**
+ * Storage for lead attachments (bytes never go to PostgreSQL): the S3 bucket when configured; local disk in development/test;
+ * `null` in production without S3, in which case the attachment API answers 503 FEATURE_UNAVAILABLE instead of silently degrading.
+ */
+export function getAttachmentStorage(): ObjectStorage | null {
+  const s = getObjectStorage();
+  if (s) return s;
+  if (config.isProd) return null;
+  return instrument((local ??= new LocalDiskStorage()));
+}
+/** Private storage for non-public working files (import sources). Same adapter and rules as attachments. */
+export const getPrivateStorage = getAttachmentStorage;
 export const storageStatus = () => ({ provider: getObjectStorage()?.name ?? 'db' });
 
 const EXT: Record<string, string> = { png: 'png', jpeg: 'jpg', webp: 'webp', gif: 'gif' };

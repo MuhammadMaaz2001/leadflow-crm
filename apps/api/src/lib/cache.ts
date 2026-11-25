@@ -3,6 +3,7 @@ import { db } from '../db';
 import { config } from '../config';
 import { getRedis } from './redis';
 import { log } from './logger';
+import { getLeadVersion } from './lead-version';
 
 /**
  * Short-TTL result cache for the three whole-workspace aggregations that grow with workspace size: list totals (`count(*)`),
@@ -29,9 +30,10 @@ export async function isLargeWorkspace(orgId: string): Promise<boolean> {
 const inflight = new Map<string, Promise<unknown>>();
 export const hashKey = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 24);
 
-export async function cachedForLarge<T>(orgId: string, key: string, compute: () => Promise<T>): Promise<T> {
+export async function cachedForLarge<T>(orgId: string, key: string, compute: () => Promise<T>, opts: { leadVersioned?: boolean } = {}): Promise<T> {
   if (!(await isLargeWorkspace(orgId))) return compute();
-  const k = `cache:${orgId}:${key}`;
+  // lead-derived values carry the workspace's lead-data version: any committed lead change makes the next read recompute (exact, not just ≤ TTL old)
+  const k = `cache:${orgId}:${opts.leadVersioned ? `v${await getLeadVersion(orgId)}:` : ''}${key}`;
   try {
     const hit = await getRedis().get(k);
     if (hit !== null) return JSON.parse(hit) as T;

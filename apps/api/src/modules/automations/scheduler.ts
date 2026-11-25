@@ -11,6 +11,8 @@ import { log } from '../../lib/logger';
 import { recordSchedulerRun } from '../../lib/health';
 import { isShuttingDown } from '../../lib/shutdown';
 import { sweepEmailOutbox } from '../../lib/email';
+import { sweepAttachments } from '../attachments/service';
+import { sweepImportJobs } from '../leads/import-jobs';
 
 /**
  * Periodic background processing (BullMQ repeatable job, every minute). All work is idempotent:
@@ -24,6 +26,8 @@ export async function runSchedulerTick(now = new Date(), shouldStop: () => boole
     await requeueStuckExecutions(orgId, now);
     await runSubscriptionLifecycle(orgId, now);
     await usageSnapshot(orgId, now);
+    await sweepImportJobs(orgId, now).catch((e) => log.warn('import sweep failed', { orgId, error: (e as Error).message }));
+    await sweepAttachments(orgId, now).catch((e) => log.warn('attachment sweep failed', { orgId, error: (e as Error).message }));
   }, shouldStop);
 }
 

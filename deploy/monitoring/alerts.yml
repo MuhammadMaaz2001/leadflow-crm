@@ -1,0 +1,57 @@
+groups:
+  - name: leadflow
+    rules:
+      - alert: LeadFlowApiDown
+        expr: up{job="leadflow-api"} == 0
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "{{ $labels.instance }} is not scrapeable" }
+      - alert: LeadFlowHighErrorRate
+        expr: sum(rate(leadflow_http_requests_total{status=~"5.."}[5m])) / sum(rate(leadflow_http_requests_total[5m])) > 0.01
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "More than 1 % of requests fail with 5xx" }
+      - alert: LeadFlowSlowRequests
+        expr: histogram_quantile(0.95, sum by (le) (rate(leadflow_http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "p95 request latency above 1 s" }
+      - alert: LeadFlowNoWorker
+        expr: max(leadflow_workers_alive) == 0
+        for: 3m
+        labels: { severity: page }
+        annotations: { summary: "No background worker heartbeat: reminders, automations, imports and e-mail are not running" }
+      - alert: LeadFlowSchedulerStale
+        expr: max(leadflow_scheduler_stale) == 1
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "The scheduler has not completed a tick for 3+ minutes" }
+      - alert: LeadFlowFailedJobsGrowing
+        expr: max(leadflow_queue_jobs{state="failed"}) > 50 and deriv(max(leadflow_queue_jobs{state="failed"})[30m:1m]) > 0
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "Failed background jobs keep accumulating" }
+      - alert: LeadFlowQueueBacklog
+        expr: max(leadflow_queue_jobs{state="waiting"}) > 500
+        for: 15m
+        labels: { severity: ticket }
+        annotations: { summary: "Queue backlog: workers are not keeping up" }
+      - alert: LeadFlowRedisDown
+        expr: min(leadflow_redis_up) == 0
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "Redis is unreachable (rate limits are per-process, jobs are paused)" }
+      - alert: LeadFlowDbPoolSaturated
+        expr: prisma_pool_connections_busy{client="app"} / (prisma_pool_connections_open{client="app"} + 0.0001) > 0.9
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "Database connection pool is nearly exhausted" }
+      - alert: LeadFlowStorageFailures
+        expr: sum(rate(leadflow_storage_operations_total{result="error"}[10m])) > 0.05
+        for: 10m
+        labels: { severity: ticket }
+        annotations: { summary: "Object storage operations are failing (attachments / imports)" }
+      - alert: LeadFlowImportsFailing
+        expr: increase(leadflow_jobs_processed_total{job="import.process",result="failure"}[1h]) > 3
+        labels: { severity: ticket }
+        annotations: { summary: "Several import job attempts failed in the last hour" }

@@ -5,17 +5,20 @@ import { registerProcessor, QUEUE_NAME, redisConnection, scheduleRepeatables, ru
 import { executeAutomation } from './modules/automations/engine';
 import { runLockedSchedulerTick } from './modules/automations/scheduler';
 import { deliverEmail } from './lib/email';
+import { processImportJob } from './modules/leads/import-jobs';
 import { log } from './lib/logger';
 import { reportError } from './lib/error-report';
 import { clearHeartbeat, publishHeartbeat, checkRedis, checkDatabase } from './lib/health';
 import { closeRedis } from './lib/redis';
 import { onShutdown } from './lib/shutdown';
 import { prisma, platformPrisma } from './db';
+import { startMetricsServer } from './lib/metrics';
 
 export function registerProcessors() {
   registerProcessor('automation.execute', async (d) => executeAutomation(String(d.orgId), String(d.executionId)));
   registerProcessor('scheduler.tick', async () => { await runLockedSchedulerTick(); });
   registerProcessor('email.send', async (d) => deliverEmail(String(d.emailId)));
+  registerProcessor('import.process', async (d) => processImportJob(String(d.orgId), String(d.jobId)));
 }
 
 /**
@@ -30,7 +33,7 @@ export async function startWorker() {
   await scheduleRepeatables();
   const worker = new Worker(QUEUE_NAME, async (job: Job) => {
     const t0 = Date.now();
-    await runProcessor(job.name as JobName, job.data);
+    await runProcessor(job.name as JobName, job.data, job.attemptsMade);
     if (job.name !== 'scheduler.tick') log.info('job done', { job: job.name, jobId: job.id, attempt: job.attemptsMade + 1, durationMs: Date.now() - t0 });
   }, { connection: redisConnection(), concurrency: config.workerConcurrency, stalledInterval: 30_000, maxStalledCount: 2, lockDuration: 60_000 });
 
@@ -58,8 +61,10 @@ export async function startWorker() {
     healthServer.listen(config.workerHealthPort, () => log.info('worker health endpoint listening', { port: config.workerHealthPort }));
   }
 
+  const metricsServer = await startMetricsServer('worker');
   onShutdown('worker', async () => {
     clearInterval(hb);
+    await new Promise<void>((r) => (metricsServer ? metricsServer.close(() => r()) : r()));
     await new Promise<void>((r) => (healthServer ? healthServer.close(() => r()) : r()));
     await worker.close();               // waits for in-flight jobs to finish
     await clearHeartbeat();

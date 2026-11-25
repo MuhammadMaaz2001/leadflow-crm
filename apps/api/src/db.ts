@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Prisma, PrismaClient } from '@leadflow/database';
 import { config } from './config';
 import { log } from './lib/logger';
+import { bumpLeadVersion } from './lib/lead-version';
 
 /** Application connection: restricted role, subject to PostgreSQL row level security. */
 const slowLog = config.slowQueryMs > 0 ? ([{ emit: 'event', level: 'query' }] as const) : undefined;
@@ -30,6 +31,8 @@ interface Store {
   afterCommit: Array<() => Promise<void>>;
   /** Set while an automation executes: actions performed by automations never trigger other automations (no loops). */
   suppressTriggers?: boolean;
+  /** Set when the transaction wrote to leads / lead tags: the lead-data version is bumped after commit (cache invalidation). */
+  leadsDirty?: boolean;
 }
 const als = new AsyncLocalStorage<Store>();
 
@@ -65,19 +68,42 @@ export async function withContext<T>(opts: ContextOptions, fn: () => Promise<T>)
     return fn();
   }
   const hooks: Array<() => Promise<void>> = [];
+  const store: Store = { tx: undefined as never, orgId: opts.orgId ?? null, userId: opts.userId ?? null, afterCommit: hooks };
   const result = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.org_id', ${opts.orgId ?? ''}, true),
         set_config('app.user_id', ${opts.userId ?? ''}, true),
         set_config('app.invite_token', ${opts.inviteToken ?? ''}, true)`;
-      return als.run({ tx, orgId: opts.orgId ?? null, userId: opts.userId ?? null, afterCommit: hooks }, fn);
+      store.tx = trackLeadWrites(tx, () => { store.leadsDirty = true; });
+      return als.run(store, fn);
     },
     { timeout: 120_000, maxWait: 15_000 },
   );
+  if (store.leadsDirty && store.orgId) await bumpLeadVersion(store.orgId);
   for (const h of hooks) {
     try { await h(); } catch (e) { log.error('afterCommit hook failed', { error: e }); }
   }
   return result;
+}
+
+const LEAD_WRITES = new Set(['create', 'createMany', 'createManyAndReturn', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']);
+/** Wraps the transaction client so any write through `lead` / `leadTag` is noticed (one place, no call site can forget to invalidate caches). */
+function trackLeadWrites(tx: Tx, mark: () => void): Tx {
+  return new Proxy(tx, {
+    get(target, prop) {
+      const v = Reflect.get(target, prop, target) as unknown;
+      if ((prop === 'lead' || prop === 'leadTag') && v && typeof v === 'object') {
+        return new Proxy(v as object, {
+          get(t, p) {
+            const f = Reflect.get(t, p, t) as unknown;
+            if (typeof f !== 'function') return f;
+            return LEAD_WRITES.has(String(p)) ? (...a: unknown[]) => { mark(); return (f as (...x: unknown[]) => unknown).apply(t, a); } : (f as (...x: unknown[]) => unknown).bind(t);
+          },
+        });
+      }
+      return typeof v === 'function' ? (v as (...x: unknown[]) => unknown).bind(target) : v;
+    },
+  });
 }
 
 /** Switch the active workspace inside the current transaction (used when creating a workspace / accepting an invite). */

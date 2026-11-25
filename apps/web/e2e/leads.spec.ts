@@ -41,14 +41,15 @@ test('lead management: search, filters, saved views, import with error report, b
     await page.getByRole('button', { name: 'Import' }).click();
     const csv = ['First Name,Last Name,Email,Phone,Company,Source,Priority', `Imported${id},Lead,${email},,CSV Co,Website,Hot`, 'Broken,Row,not-an-email,,,,', ',NoName,noname@csv.test,,,,'].join('\n');
     await page.getByTestId('import-file').setInputFiles({ name: 'leads.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-    await expect(page.getByText('Rows needing attention')).toBeVisible();
+    await expect(page.getByText('Rows needing attention')).toBeVisible();                    // preview of the uploaded file (job created, nothing imported yet)
     await expect(page.getByText(/Invalid email/)).toBeVisible();
     await expect(page.getByText('First name (or Name) is required')).toBeVisible();
+    await page.getByRole('button', { name: /Start import \(3 rows\)/ }).click();            // now it runs as a background job
+    await expect(page.getByText('Import complete')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('import-status').getByText('Imported 1 lead')).toBeVisible();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: /Error report/ }).click();
-    expect((await download).suggestedFilename()).toBe('lead-import-errors.csv');
-    await page.getByRole('button', { name: /Import 1 valid row/ }).click();
-    await toast(page, 'Imported 1 lead');
+    await page.getByRole('button', { name: /Download error report/ }).click();
+    expect((await download).suggestedFilename()).toMatch(/errors\.csv$/);
     await page.getByRole('button', { name: 'Done' }).click();
   });
 

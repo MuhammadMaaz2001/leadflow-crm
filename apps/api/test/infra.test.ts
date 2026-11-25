@@ -354,19 +354,22 @@ describe('result cache for very large workspaces', () => {
     try {
       expect((await owner.get('/leads')).body.meta.total).toBe(2);                  // computed and cached
       await owner.post('/leads', { firstName: 'C3', email: `c3-${uniq()}@x.com` });
+      expect((await owner.get('/leads')).body.meta.total).toBe(3);                 // a committed lead change invalidates the cached total at once (lead-data version)
+      // the cache itself is active: a change made behind the application's back (no version bump) stays invisible until the TTL …
+      await ownerPrisma.lead.create({ data: { organizationId: owner.orgId!, firstName: 'Sneaky', email: 'sneaky@x.com', emailNormalized: 'sneaky@x.com' } });
       const cached = await owner.get('/leads');
-      expect(cached.body.meta.total).toBe(2);                                      // served from cache (≤ TTL old) …
-      expect(cached.body.data).toHaveLength(3);                                    // … while the rows are live
+      expect(cached.body.meta.total).toBe(3);                                      // served from cache …
+      expect(cached.body.data).toHaveLength(4);                                    // … while the rows are live
       // scopes never share entries: an agent (own leads only) has her own total
       expect((await agent.get('/leads')).body.meta.total).toBe(0);
       // dashboards and reports are cached per scope too, and keep working when Redis is unavailable
       const d1 = await owner.get('/dashboard'); expect(d1.status).toBe(200);
       const spy = vi.spyOn(getRedis(), 'get').mockRejectedValue(new Error('redis down'));
-      try { expect((await owner.get('/leads')).body.meta.total).toBe(3); expect((await owner.get('/dashboard')).status).toBe(200); } finally { spy.mockRestore(); }
+      try { expect((await owner.get('/leads')).body.meta.total).toBe(4); expect((await owner.get('/dashboard')).status).toBe(200); } finally { spy.mockRestore(); }
       // after the TTL the number is exact again
       const keys = await getRedis().keys(`cache:${owner.orgId}:*`); expect(keys.length).toBeGreaterThan(0);
       await getRedis().del(...keys);
-      expect((await owner.get('/leads')).body.meta.total).toBe(3);
+      expect((await owner.get('/leads')).body.meta.total).toBe(4);
     } finally {
       (config as { largeWorkspaceLeads: number }).largeWorkspaceLeads = original;
       resetCacheMemo();

@@ -366,7 +366,7 @@ test.describe('billing & plan limits', () => {
     const ap = await ctx.newPage();
     await ap.goto('/login');
     await ap.locator('#email').fill('admin@leadflow.test'); await ap.locator('#password').fill('Admin#Pass2026');
-    await ap.getByRole('button', { name: 'Sign in' }).click();
+    await ap.getByRole('button', { name: 'Sign in', exact: true }).click();
     await ap.waitForURL(/\/platform/);
     await ap.goto('/platform/invoices');
     await ap.getByLabel('Search invoices').fill(ws.name);
@@ -466,7 +466,7 @@ test.describe('platform administration', () => {
     await p.goto('/login');
     await p.locator('#email').fill('billing@leadflow.test');
     await p.locator('#password').fill('Admin#Pass2026');
-    await p.getByRole('button', { name: 'Sign in' }).click();
+    await p.getByRole('button', { name: 'Sign in', exact: true }).click();
     await p.waitForURL(/\/platform/);
     await p.getByRole('link', { name: 'Subscription plans' }).click();
     await expect(p.getByText('Starter').first()).toBeVisible();

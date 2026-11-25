@@ -64,6 +64,36 @@ export const config = {
   emailFrom: env.EMAIL_FROM ?? 'LeadFlow <no-reply@localhost>',
   smtp: { host: env.SMTP_HOST, port: num(env.SMTP_PORT, 587), user: env.SMTP_USER, pass: env.SMTP_PASSWORD, secure: env.SMTP_SECURE === 'true' },
   storageProvider: oneOf(env.STORAGE_PROVIDER, ['db', 's3'] as const, 'db'),
+  /** Development/test only: lead attachments are written here when no S3 bucket is configured (production requires S3). */
+  localStorageDir: env.STORAGE_LOCAL_DIR ?? '.data/uploads',
+  // lead attachments (bytes in object storage, metadata in PostgreSQL)
+  attachmentMaxBytes: Math.min(num(env.ATTACHMENT_MAX_BYTES, 10 * 1024 * 1024), 100 * 1024 * 1024),
+  attachmentMaxFilesPerRequest: Math.min(num(env.ATTACHMENT_MAX_FILES_PER_REQUEST, 10), 25),
+  attachmentMaxPerLead: num(env.ATTACHMENT_MAX_PER_LEAD, 50),
+  attachmentWorkspaceMaxBytes: num(env.ATTACHMENT_WORKSPACE_MAX_BYTES, 2 * 1024 * 1024 * 1024),   // 0 = unlimited
+  serviceName: process.env.SERVICE_NAME ?? 'leadflow-api',
+  // metrics (Prometheus): separate listener, loopback by default; a token is mandatory when it is reachable from the network
+  metricsPort: env.METRICS_PORT ? num(env.METRICS_PORT, 0) : null,
+  workerMetricsPort: env.WORKER_METRICS_PORT ? num(env.WORKER_METRICS_PORT, 0) : null,
+  metricsHost: env.METRICS_HOST ?? '127.0.0.1',
+  metricsToken: env.METRICS_TOKEN || undefined,
+  // single sign-on
+  ssoAllowPrivateIdp: env.SSO_ALLOW_PRIVATE_IDP ? env.SSO_ALLOW_PRIVATE_IDP === 'true' : !(!isDev && !isTest),
+  ssoStateTtlSeconds: num(env.SSO_STATE_TTL_SECONDS, 600),
+  // lead search: 'indexed' uses the trigram-backed lf_search_lead_ids() function for selective terms; 'ilike' is the previous behaviour (rollback switch)
+  searchStrategy: oneOf(env.SEARCH_STRATEGY, ['indexed', 'ilike'] as const, 'indexed'),
+  searchMaxIds: Math.min(num(env.SEARCH_MAX_IDS, 2000), 4000),
+  // background imports
+  importMaxFileBytes: Math.min(num(env.IMPORT_MAX_FILE_BYTES, 25 * 1024 * 1024), 200 * 1024 * 1024),
+  importMaxRows: num(env.IMPORT_MAX_ROWS, 100_000),
+  importBatchSize: Math.max(50, Math.min(num(env.IMPORT_BATCH_SIZE, 500), 2000)),
+  importMaxActivePerOrg: Math.max(1, num(env.IMPORT_MAX_ACTIVE_PER_ORG, 1)),
+  importMaxConcurrent: Math.max(1, num(env.IMPORT_MAX_CONCURRENT, 2)),
+  importPreviewTtlHours: num(env.IMPORT_PREVIEW_TTL_HOURS, 24),
+  importHistoryDays: num(env.IMPORT_HISTORY_DAYS, 90),
+  importMaxAttempts: Math.max(1, num(env.IMPORT_MAX_ATTEMPTS, 3)),
+  importErrorCap: num(env.IMPORT_ERROR_CAP, 10_000),
+  attachmentOrphanGraceMs: num(env.ATTACHMENT_ORPHAN_GRACE_MS, 3_600_000),
   s3: { endpoint: env.S3_ENDPOINT, region: env.S3_REGION ?? 'us-east-1', bucket: env.S3_BUCKET, accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY, forcePathStyle: env.S3_FORCE_PATH_STYLE === 'true' },
   paymentProvider: oneOf(env.PAYMENT_PROVIDER, ['manual'] as const, 'manual'),
 };

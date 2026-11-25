@@ -11,19 +11,19 @@ import { assertLeadCapacity } from '../subscriptions/service';
 import { emitTrigger } from '../automations/events';
 import { pickAssignee, validateCustomFields } from './service';
 import { assertSpreadsheet } from '../../lib/upload';
-import { buildLeadWhere, leadFilterQuery, leadInclude, shapeLeads } from './queries';
+import { buildLeadWhere, leadFilterQuery, leadInclude, planSearch, shapeLeads } from './queries';
 
 export const MAX_IMPORT_ROWS = 5000;
 export const MAX_EXPORT_ROWS = 20000;
 
-const HEADER_ALIASES: Record<string, string> = {
+export const HEADER_ALIASES: Record<string, string> = {
   firstname: 'firstName', first: 'firstName', givenname: 'firstName', lastname: 'lastName', last: 'lastName', surname: 'lastName', familyname: 'lastName',
   name: 'fullName', fullname: 'fullName', email: 'email', emailaddress: 'email', mail: 'email', phone: 'phone', phonenumber: 'phone', mobile: 'phone', telephone: 'phone', tel: 'phone',
   company: 'companyName', companyname: 'companyName', organization: 'companyName', organisation: 'companyName', jobtitle: 'jobTitle', title: 'jobTitle', position: 'jobTitle',
   source: 'source', leadsource: 'source', campaign: 'campaign', priority: 'priority', tags: 'tags', tag: 'tags', description: 'description', notes: 'description',
   assignedto: 'assignedTo', owner: 'assignedTo', assigneeemail: 'assignedTo', salesperson: 'assignedTo',
 };
-const key = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, '');
+export const headerKey = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 export interface ParsedRow { rowNumber: number; values: Record<string, string> }
 
@@ -80,8 +80,8 @@ export async function importLeads(ctx: Ctx, file: { originalname: string; buffer
   const mapping: Record<string, string> = {};
   const unmapped: string[] = [];
   for (const h of headers) {
-    const k = key(h);
-    const cf = customDefs.find((d) => key(d.label) === k || key(d.key) === k);
+    const k = headerKey(h);
+    const cf = customDefs.find((d) => headerKey(d.label) === k || headerKey(d.key) === k);
     if (HEADER_ALIASES[k]) mapping[h] = HEADER_ALIASES[k]!;
     else if (cf) mapping[h] = `custom:${cf.key}`;
     else if (h) unmapped.push(h);
@@ -191,7 +191,7 @@ export const exportQuery = leadFilterQuery.extend({
 });
 
 export async function exportLeads(ctx: Ctx, q: z.infer<typeof exportQuery>) {
-  const where = buildLeadWhere(ctx, q);
+  const where = buildLeadWhere(ctx, q, await planSearch(ctx.orgId, q.q));
   if (q.ids?.length) (where.AND as unknown[]).push({ id: { in: q.ids } });
   const rows = await db().lead.findMany({ where, include: leadInclude, orderBy: { createdAt: 'desc' }, take: MAX_EXPORT_ROWS + 1 });
   if (rows.length > MAX_EXPORT_ROWS) throw new AppError(422, 'EXPORT_TOO_LARGE', `This export has more than ${MAX_EXPORT_ROWS.toLocaleString()} leads. Narrow the filters (for example by date or status) and export in parts.`);

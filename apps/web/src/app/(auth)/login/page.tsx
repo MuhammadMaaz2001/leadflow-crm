@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FormError, Input } from '@/components/ui/form';
 import { ApiError, api } from '@/lib/api';
 import type { Me } from '@/lib/session';
+import { SSO_ERRORS } from '@/components/sso-settings';
 
 type Values = z.infer<typeof loginSchema>;
 
@@ -24,6 +25,9 @@ function LoginForm() {
   const [unverified, setUnverified] = React.useState(false);
   const [devLink, setDevLink] = React.useState<string | null>(null);
   const invite = params.get('invite');
+  const ssoError = params.get('sso_error');
+  const [showSso, setShowSso] = React.useState(!!ssoError);
+  const [workspace, setWorkspace] = React.useState(params.get('workspace') ?? '');
   const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<Values>({ resolver: zodResolver(loginSchema), defaultValues: { email: params.get('email') ?? '', password: '' } });
 
   const onSubmit = handleSubmit(async (v) => {
@@ -49,7 +53,7 @@ function LoginForm() {
   return (
     <AuthLayout title="Welcome back" subtitle="Sign in to your LeadFlow workspace." footer={<>New to LeadFlow? <Link className="font-medium text-accent-ink hover:underline" href={invite ? `/register?invite=${invite}` : '/register'}>Create an account</Link></>}>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <FormError message={error} />
+        <FormError message={error ?? (ssoError ? SSO_ERRORS[ssoError] ?? 'Single sign-on failed. Please try again or use your password.' : null)} />
         {unverified && (
           <div className="rounded-md border border-line bg-subtle p-3 text-xs text-ink-2">
             <Button type="button" variant="link" onClick={resend}>Resend verification email</Button>
@@ -61,6 +65,17 @@ function LoginForm() {
         <div className="flex justify-end"><Link href="/forgot-password" className="text-xs text-accent-ink hover:underline">Forgot password?</Link></div>
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={isSubmitting}>Sign in</Button>
       </form>
+      <div className="mt-5 border-t border-line pt-4">
+        {!showSso ? (
+          <Button type="button" variant="secondary" className="w-full" onClick={() => setShowSso(true)}>Sign in with single sign-on</Button>
+        ) : (
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation to the API (redirects to the identity provider)
+            if (workspace.trim()) window.location.href = `/api/auth/sso/start?workspace=${encodeURIComponent(workspace.trim())}${params.get('next') ? `&next=${encodeURIComponent(params.get('next')!)}` : ''}`; }}>
+            <Field label="Workspace name" htmlFor="sso-workspace" hint="The short name of your workspace (ask your administrator if unsure)"><Input id="sso-workspace" value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="acme" autoComplete="organization" /></Field>
+            <Button type="submit" variant="secondary" className="w-full" disabled={!workspace.trim()}>Continue with single sign-on</Button>
+          </form>
+        )}
+      </div>
     </AuthLayout>
   );
 }

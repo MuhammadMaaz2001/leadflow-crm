@@ -154,6 +154,17 @@ export const taskUpdateSchema = z.object({
   dueAt: z.preprocess((v) => (v === '' ? null : v), isoDate.nullable().optional()), assignedToId: optionalUuid,
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']).optional(),
 });
+/** Drag-and-drop / dialog rescheduling from the calendar. Either an absolute `start`, or a calendar `date` (+ optional `time`) in the WORKSPACE timezone. */
+export const calendarRescheduleSchema = z.object({
+  kind: z.enum(['followup', 'task']),
+  id: uuid,
+  start: isoDate.optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm').optional(),
+  /** The due date the client believes the item currently has — protects against stale or duplicated drops. */
+  expectedStart: isoDate.optional(),
+  reason: z.string().trim().max(300).optional(),
+}).refine((v) => !!v.start !== !!v.date, { message: 'Provide either start or date', path: ['date'] }).refine((v) => !(v.start && v.time), { message: 'time can only be combined with date', path: ['time'] });
 export const commentSchema = z.object({ body: trimmed(3000).min(1, 'Write a comment') });
 
 export const automationSchema = z.object({

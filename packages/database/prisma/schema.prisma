@@ -2,7 +2,8 @@
 // enforced by (1) organization_id on every tenant record, (2) composite tenant-aware
 // foreign keys (id, organization_id), and (3) PostgreSQL row level security (see migrations).
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["metrics"]
   output   = "../generated/client"
 }
 
@@ -128,6 +129,8 @@ enum ActivityType {
   STAGE_CHANGED
   OPPORTUNITY_WON
   OPPORTUNITY_LOST
+  ATTACHMENT_ADDED
+  ATTACHMENT_REMOVED
 }
 enum NotificationType {
   NEW_LEAD
@@ -210,6 +213,8 @@ model Session {
   lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  authMethod String    @default("PASSWORD") @map("auth_method")
+  ssoOrgId   String?   @map("sso_org_id") @db.Uuid
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -255,6 +260,7 @@ model OutboundEmail {
 model Organization {
   id                    String         @id @default(uuid()) @db.Uuid
   name                  String
+  ssoEnforced           Boolean        @default(false) @map("sso_enforced")
   slug                  String         @unique
   logoData              String?        @map("logo_data")
   industry              String?
@@ -308,6 +314,11 @@ model Organization {
   invoices        Invoice[]
   payments        Payment[]
   savedViews      SavedView[]
+  leadAttachments LeadAttachment[]
+  ssoConnection   SsoConnection?
+  ssoIdentities   SsoIdentity[]
+  importJobs      ImportJob[]
+  importJobErrors ImportJobError[]
   usageRecords    UsageRecord[]
   auditLogs       AuditLog[]
 
@@ -501,6 +512,7 @@ model Lead {
   opportunities Opportunity[]
   followUps     FollowUp[]
   activities    Activity[]
+  attachments   LeadAttachment[]
   tasks         Task[]
 
   @@unique([id, organizationId])
@@ -1083,4 +1095,133 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([scope, createdAt])
   @@map("audit_logs")
+}
+
+/// File attached to a lead. Bytes are in the private object store under `storageKey`; only metadata is in PostgreSQL.
+model LeadAttachment {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  leadId           String    @map("lead_id") @db.Uuid
+  storageKey       String    @unique @map("storage_key")
+  originalName     String    @map("original_name")
+  contentType      String    @map("content_type")
+  extension        String
+  sizeBytes        BigInt    @map("size_bytes")
+  sha256           String
+  uploadedById     String?   @map("uploaded_by_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedById      String?   @map("deleted_by_id") @db.Uuid
+  storageDeletedAt DateTime? @map("storage_deleted_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([organizationId, leadId, createdAt])
+  @@map("lead_attachments")
+}
+
+/// Background lead import (CSV / Excel). Progress counters and `lastRow` are committed together with each batch, so a retry resumes safely.
+model ImportJob {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  createdById      String?   @map("created_by_id") @db.Uuid
+  kind             String    @default("LEADS")
+  status           String    @default("PREVIEW")
+  fileName         String    @map("file_name")
+  fileKey          String?   @map("file_key")
+  fileSize         BigInt    @map("file_size")
+  fileFormat       String    @map("file_format")
+  options          Json      @default("{}")
+  headers          Json?
+  mapping          Json?
+  unmappedHeaders  Json?     @map("unmapped_headers")
+  preview          Json?
+  totalRows        Int?      @map("total_rows")
+  processedRows    Int       @default(0) @map("processed_rows")
+  createdRows      Int       @default(0) @map("created_rows")
+  failedRows       Int       @default(0) @map("failed_rows")
+  skippedRows      Int       @default(0) @map("skipped_rows")
+  lastRow          Int       @default(1) @map("last_row")
+  automationsFired Int       @default(0) @map("automations_fired")
+  attempts         Int       @default(0)
+  requeues         Int       @default(0)
+  error            String?
+  stopReason       String?   @map("stop_reason")
+  cancelRequested  Boolean   @default(false) @map("cancel_requested")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  queuedAt         DateTime? @map("queued_at") @db.Timestamptz(6)
+  startedAt        DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz(6)
+  fileDeletedAt    DateTime? @map("file_deleted_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  errors       ImportJobError[]
+
+  @@index([organizationId, createdAt])
+  @@map("import_jobs")
+}
+
+model ImportJobError {
+  id             BigInt   @id @default(autoincrement())
+  jobId          String   @map("job_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  rowNumber      Int      @map("row_number")
+  kind           String
+  field          String?
+  message        String
+  data           Json?
+
+  job          ImportJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, rowNumber, kind], map: "import_job_errors_unique")
+  @@map("import_job_errors")
+}
+
+/// Workspace OpenID Connect connection. `clientSecretEnc` is AES-256-GCM ciphertext (see lib/secrets.ts); tokens are never persisted.
+model SsoConnection {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @unique @map("organization_id") @db.Uuid
+  protocol             String    @default("OIDC")
+  name                 String
+  issuer               String
+  clientId             String    @map("client_id")
+  clientSecretEnc      String    @map("client_secret_enc")
+  scopes               String    @default("openid email profile")
+  allowedEmailDomains  String[]  @default([]) @map("allowed_email_domains")
+  allowUnverifiedEmail Boolean   @default(false) @map("allow_unverified_email")
+  jitEnabled           Boolean   @default(false) @map("jit_enabled")
+  jitRoleId            String?   @map("jit_role_id") @db.Uuid
+  enabled              Boolean   @default(false)
+  enforceSso           Boolean   @default(false) @map("enforce_sso")
+  verifiedAt           DateTime? @map("verified_at") @db.Timestamptz(6)
+  lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
+  lastError            String?   @map("last_error")
+  lastErrorAt          DateTime? @map("last_error_at") @db.Timestamptz(6)
+  createdById          String?   @map("created_by_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("sso_connections")
+}
+
+model SsoIdentity {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  issuer         String
+  subject        String
+  email          String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, issuer, subject], map: "sso_identities_subject_unique")
+  @@unique([organizationId, userId], map: "sso_identities_user_unique")
+  @@map("sso_identities")
 }

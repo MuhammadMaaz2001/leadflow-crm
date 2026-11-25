@@ -110,7 +110,7 @@ test.describe('platform administrator roles', () => {
     const p = await ctx.newPage();
     await p.goto('/login');
     await p.locator('#email').fill(email); await p.locator('#password').fill('Admin#Pass2026');
-    await p.getByRole('button', { name: 'Sign in' }).click();
+    await p.getByRole('button', { name: 'Sign in', exact: true }).click();
     await p.waitForURL(/\/platform/);
     return { ctx, p };
   };

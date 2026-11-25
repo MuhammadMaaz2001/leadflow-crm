@@ -2,15 +2,20 @@ import { Queue, type JobsOptions } from 'bullmq';
 import IORedis from 'ioredis';
 import { config } from '../config';
 import { log } from './logger';
+import { jobDuration, jobRetries, jobsProcessed } from './metrics';
 
-export type JobName = 'automation.execute' | 'scheduler.tick' | 'email.send';
+export type JobName = 'automation.execute' | 'scheduler.tick' | 'email.send' | 'import.process';
 type Processor = (data: Record<string, unknown>) => Promise<void>;
 const processors = new Map<JobName, Processor>();
 export const registerProcessor = (name: JobName, fn: Processor) => processors.set(name, fn);
-export const runProcessor = async (name: JobName, data: Record<string, unknown>) => {
+export const runProcessor = async (name: JobName, data: Record<string, unknown>, attempt = 0) => {
   const p = processors.get(name);
   if (!p) throw new Error(`No processor registered for ${name}`);
-  await p(data);
+  const end = jobDuration.startTimer({ job: name });
+  if (attempt > 0) jobRetries.inc({ job: name });
+  try { await p(data); jobsProcessed.inc({ job: name, result: 'success' }); }
+  catch (e) { jobsProcessed.inc({ job: name, result: 'failure' }); throw e; }
+  finally { end(); }
 };
 
 export const QUEUE_NAME = process.env.QUEUE_NAME ?? 'leadflow';

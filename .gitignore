@@ -18,3 +18,4 @@ apps/web/CLAUDE.md
 dump.rdb
 deploy/.env*
 .env.production
+.data

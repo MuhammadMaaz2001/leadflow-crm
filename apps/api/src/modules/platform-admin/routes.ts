@@ -89,6 +89,15 @@ platform.post('/organizations/:id/suspend', { auth: 'platform', platformRoles: [
   await paudit(user, 'organization.suspended', 'organization', o.id, { reason: body.reason }, o.id);
   return { status: 'SUSPENDED' };
 });
+/** Break-glass: switches a workspace's SSO off (and the SSO-only requirement) when the identity provider is broken and members cannot sign in. */
+platform.post('/organizations/:id/sso/disable', { auth: 'platform', platformRoles: [...SUPPORT], body: z.object({ reason: z.string().trim().min(3, 'Give a reason').max(300) }), summary: 'Emergency: switch off a workspace\'s single sign-on and its SSO-only requirement' }, async ({ user, params, body }) => {
+  const o = await pdb.organization.findUnique({ where: { id: params.id } });
+  if (!o) throw notFound('Organization');
+  const r = await pdb.$executeRaw`UPDATE sso_connections SET enabled = false, enforce_sso = false WHERE organization_id = ${o.id}::uuid`;
+  await pdb.organization.update({ where: { id: o.id }, data: { ssoEnforced: false } });
+  await paudit(user, 'organization.sso_disabled', 'organization', o.id, { reason: body.reason, hadConnection: Number(r) > 0 }, o.id);
+  return { disabled: true, hadConnection: Number(r) > 0 };
+});
 platform.post('/organizations/:id/activate', { auth: 'platform', platformRoles: [...SUPPORT], summary: 'Re-activate a suspended organization' }, async ({ user, params }) => {
   const o = await pdb.organization.findUnique({ where: { id: params.id } });
   if (!o) throw notFound('Organization');

@@ -53,7 +53,7 @@ test('end-to-end CRM lifecycle', async ({ browser }) => {
       await who.page.getByRole('button', { name: 'Create account' }).click();   // invited email counts as verified
       await who.page.waitForURL(/\/login/);
       await who.page.locator('#password').fill(PASSWORD);
-      await who.page.getByRole('button', { name: 'Sign in' }).click();
+      await who.page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await who.page.getByRole('button', { name: /Accept & join workspace/ }).click();
       await expect(who.page).toHaveURL(/dashboard/);
       await expect(who.page.getByRole('button', { name: 'Switch workspace' })).toContainText(company);

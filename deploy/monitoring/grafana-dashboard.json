@@ -1,0 +1,586 @@
+{
+ "title": "LeadFlow CRM",
+ "uid": "leadflow-ops",
+ "schemaVersion": 39,
+ "version": 1,
+ "refresh": "30s",
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "tags": [
+  "leadflow"
+ ],
+ "templating": {
+  "list": [
+   {
+    "name": "DS_PROMETHEUS",
+    "type": "datasource",
+    "query": "prometheus",
+    "label": "Prometheus"
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "timeseries",
+   "title": "Requests / s",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 6,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(leadflow_http_requests_total[5m]))",
+     "legendFormat": "total",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "5xx error ratio",
+   "gridPos": {
+    "x": 6,
+    "y": 0,
+    "w": 6,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(leadflow_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(leadflow_http_requests_total[5m]))",
+     "legendFormat": "5xx",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "p95 latency",
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 6,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(leadflow_http_request_duration_seconds_bucket[5m])))",
+     "legendFormat": "p95",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Workers alive",
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 3,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "max(leadflow_workers_alive)",
+     "legendFormat": "workers",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Scheduler stale",
+   "gridPos": {
+    "x": 21,
+    "y": 0,
+    "w": 3,
+    "h": 6
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "max(leadflow_scheduler_stale)",
+     "legendFormat": "stale",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "Requests by status",
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (status) (rate(leadflow_http_requests_total[5m]))",
+     "legendFormat": "{{status}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "Slowest routes (p95)",
+   "gridPos": {
+    "x": 8,
+    "y": 6,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "topk(8, histogram_quantile(0.95, sum by (le, route) (rate(leadflow_http_request_duration_seconds_bucket[5m]))))",
+     "legendFormat": "{{route}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Errors by route",
+   "gridPos": {
+    "x": 16,
+    "y": 6,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "topk(8, sum by (route) (rate(leadflow_http_errors_total{class=\"5xx\"}[5m])))",
+     "legendFormat": "{{route}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Queue jobs by state",
+   "gridPos": {
+    "x": 0,
+    "y": 13,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "max by (state) (leadflow_queue_jobs)",
+     "legendFormat": "{{state}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Job duration p95",
+   "gridPos": {
+    "x": 8,
+    "y": 13,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, job) (rate(leadflow_job_duration_seconds_bucket[10m])))",
+     "legendFormat": "{{job}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "Job results",
+   "gridPos": {
+    "x": 16,
+    "y": 13,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (job, result) (rate(leadflow_jobs_processed_total[10m]))",
+     "legendFormat": "{{job}} {{result}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "DB pool: busy / open",
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (client) (prisma_pool_connections_busy)",
+     "legendFormat": "busy {{client}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "DB query p95 (ms)",
+   "gridPos": {
+    "x": 8,
+    "y": 20,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, client) (rate(prisma_client_queries_duration_histogram_ms_bucket[5m])))",
+     "legendFormat": "{{client}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Storage operations",
+   "gridPos": {
+    "x": 16,
+    "y": 20,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (op, result) (rate(leadflow_storage_operations_total[10m]))",
+     "legendFormat": "{{op}} {{result}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Import rows / s",
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (result) (rate(leadflow_import_rows_total[5m]))",
+     "legendFormat": "{{result}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Lead search strategy",
+   "gridPos": {
+    "x": 8,
+    "y": 27,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (strategy) (rate(leadflow_lead_search_total[5m]))",
+     "legendFormat": "{{strategy}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "type": "timeseries",
+   "title": "Workspaces / users / sessions",
+   "gridPos": {
+    "x": 16,
+    "y": 27,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "leadflow_workspaces",
+     "legendFormat": "workspaces {{status}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Event loop lag",
+   "gridPos": {
+    "x": 0,
+    "y": 34,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "leadflow_nodejs_eventloop_lag_p99_seconds",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Process memory (RSS)",
+   "gridPos": {
+    "x": 8,
+    "y": 34,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "leadflow_process_resident_memory_bytes",
+     "legendFormat": "{{instance}}",
+     "refId": "A"
+    }
+   ]
+  },
+  {
+   "id": 20,
+   "type": "timeseries",
+   "title": "SSO sign-ins",
+   "gridPos": {
+    "x": 16,
+    "y": 34,
+    "w": 8,
+    "h": 7
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "expr": "sum by (result) (rate(leadflow_sso_logins_total[10m]))",
+     "legendFormat": "{{result}}",
+     "refId": "A"
+    }
+   ]
+  }
+ ]
+}

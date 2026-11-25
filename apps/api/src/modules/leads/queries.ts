@@ -1,7 +1,10 @@
 import type { Lead, Prisma } from '@leadflow/database';
 import { fullName } from '@leadflow/shared';
 import { z } from 'zod';
+import { Prisma as P } from '@leadflow/database';
+import { config } from '../../config';
 import { db } from '../../db';
+import { searchPlans } from '../../lib/metrics';
 import { boolQuery, csvEnum, csvUuids, pageQuery } from '../../lib/pagination';
 import { lite, usersById } from '../../lib/users';
 import type { Ctx } from '../../http';
@@ -16,22 +19,52 @@ export const leadFilterQuery = z.object({
 });
 export const leadListQuery = leadFilterQuery.extend({
   ...pageQuery,
+  /** Keyset pagination: `start` for the first page, then the `nextCursor` of the previous response. Only with sort=createdAt. Cost does not grow with depth. */
+  cursor: z.string().max(200).optional(),
   sort: z.enum(['createdAt', 'name', 'company', 'lastActivityAt', 'status']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
 });
 export type LeadFilters = z.infer<typeof leadFilterQuery>;
 
-export function buildLeadWhere(ctx: Ctx, f: LeadFilters): Prisma.LeadWhereInput {
+const likeEscape = (t: string) => t.replace(/[\\%_]/g, (c) => `\\${c}`);
+/** Search terms of a query string (whitespace separated, bounded). */
+export const searchTerms = (q?: string) => (q ? q.split(/\s+/).filter(Boolean).slice(0, 6) : []);
+
+/**
+ * Resolves a search through the trigram index (see migration `lead_search`) when it is selective: if all terms together match at most
+ * SEARCH_MAX_IDS leads, the exact id list is returned and the list query becomes `id IN (…)`. Broader searches (and searches whose terms are
+ * all shorter than 3 characters, which trigram indexes cannot serve) return null and keep the ILIKE predicate, which stops early on dense
+ * matches. Both paths return exactly the same set of leads.
+ */
+const broadMemo = new Map<string, number>();       // "this search is broad in this workspace" for a few minutes: skip the probe (it only picks the strategy, never the result)
+const BROAD_MEMO_MS = 5 * 60_000;
+export const resetSearchMemo = () => broadMemo.clear();
+export async function planSearch(orgId: string, q?: string): Promise<string[] | null> {
+  const terms = searchTerms(q);
+  if (config.searchStrategy !== 'indexed' || !terms.some((t) => t.length >= 3)) return null;
+  const memoKey = `${orgId}:${terms.map((t) => t.toLowerCase()).sort().join('\u0001')}`;
+  if ((broadMemo.get(memoKey) ?? 0) > Date.now()) { searchPlans.inc({ strategy: 'broad' }); return null; }
+  const rows = await db().$queryRaw<Array<{ id: string }>>(P.sql`SELECT lf_search_lead_ids AS id FROM lf_search_lead_ids(${terms}::text[], ${config.searchMaxIds + 1}::integer)`);
+  if (rows.length <= config.searchMaxIds) { searchPlans.inc({ strategy: 'indexed' }); return rows.map((r) => r.id); }
+  searchPlans.inc({ strategy: 'broad' });
+  if (broadMemo.size > 2000) broadMemo.clear();
+  broadMemo.set(memoKey, Date.now() + BROAD_MEMO_MS);
+  return null;
+}
+
+export function buildLeadWhere(ctx: Ctx, f: LeadFilters, searchIds?: string[] | null): Prisma.LeadWhereInput {
   const and: Prisma.LeadWhereInput[] = [leadScope(ctx), { mergedIntoId: null }];
   if (f.archived === 'false') and.push({ archivedAt: null });
   if (f.archived === 'true') and.push({ archivedAt: { not: null } });
-  if (f.q) {
-    const terms = f.q.split(/\s+/).filter(Boolean);
-    for (const t of terms) {
+  if (f.q && searchIds) and.push({ id: { in: searchIds } });
+  else if (f.q) {
+    const terms = searchTerms(f.q);
+    for (const raw of terms) {
+      const t = likeEscape(raw);                       // `%` and `_` typed by a user are literal characters, not wildcards (same rule as the indexed path)
       and.push({ OR: [
         { firstName: { contains: t, mode: 'insensitive' } }, { lastName: { contains: t, mode: 'insensitive' } },
         { email: { contains: t, mode: 'insensitive' } }, { companyName: { contains: t, mode: 'insensitive' } },
-        { phone: { contains: t } }, ...(t.replace(/\D/g, '').length >= 4 ? [{ phoneNormalized: { contains: t.replace(/\D/g, '') } }] : []),
+        { phone: { contains: t } }, ...(raw.replace(/\D/g, '').length >= 4 ? [{ phoneNormalized: { contains: raw.replace(/\D/g, '') } }] : []),
       ] });
     }
   }

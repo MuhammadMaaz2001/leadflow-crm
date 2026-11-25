@@ -8,6 +8,7 @@ import { routers } from './modules';
 import { openApiDocument, swaggerHandlers } from './openapi';
 import { rateLimiter, type Store } from './lib/ratelimit';
 import { requestContext } from './lib/request';
+import { httpMetrics } from './lib/metrics';
 
 export interface AppOptions {
   rateLimit?: boolean;
@@ -36,6 +37,7 @@ export function createApp(opts: AppOptions = {}) {
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
   app.use(requestContext({ accessLog: opts.accessLog ?? config.accessLog }));
+  app.use(httpMetrics);
   // The API only returns JSON: lock the browser policy down completely. (Swagger UI, mounted below, gets its own relaxed policy.)
   app.use(helmet({
     contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] } },
@@ -57,7 +59,9 @@ export function createApp(opts: AppOptions = {}) {
     const emailKey = (r: express.Request) => { const e = (r.body as { email?: unknown } | undefined)?.email; return typeof e === 'string' && e.length < 255 ? `email:${e.trim().toLowerCase()}` : null; };
     app.use('/api', rl('api', 60_000, 900));
     for (const p of ['/api/auth/reset-password', '/api/auth/verify-email', '/api/auth/resend-verification', '/api/auth/invitation', '/api/auth/change-password']) app.use(p, rl(`sensitive:${p}`, 60_000, 20));
-    app.use('/api/leads/import', rl('import', 60_000, 10));
+    const importLimiter = rl('import', 60_000, 10);
+    app.use('/api/leads/import', (req, res, next) => (req.method === 'POST' ? importLimiter(req, res, next) : next()));   // polling a job's progress must not be throttled
+    app.use('/api/auth/sso', rl('sso', 60_000, 40, 'Too many sign-in attempts. Please wait a minute.'));
     app.use('/api/auth/login', rl('login', 60_000, 20, 'Too many attempts. Please wait a minute.'));
     // per-account limit: stops a distributed credential-stuffing run against one mailbox regardless of source IP
     app.use('/api/auth/login', rl('login-account', 60_000, 10, 'Too many attempts for this account. Please wait a minute.', emailKey));

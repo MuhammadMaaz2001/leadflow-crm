@@ -14,7 +14,7 @@ import type { Ctx } from '../../http';
 
 export const tasks = defineRoutes('Tasks', '/tasks');
 
-const taskScope = (ctx: Ctx): Prisma.TaskWhereInput => (ctx.can('tasks.view_all') ? {} : { OR: [{ assignedToId: ctx.userId }, { createdById: ctx.userId }] });
+export const taskScope = (ctx: Ctx): Prisma.TaskWhereInput => (ctx.can('tasks.view_all') ? {} : { OR: [{ assignedToId: ctx.userId }, { createdById: ctx.userId }] });
 
 async function getTask(ctx: Ctx, id: string) {
   const t = await db().task.findFirst({ where: { id, organizationId: ctx.orgId, AND: [taskScope(ctx)] } });

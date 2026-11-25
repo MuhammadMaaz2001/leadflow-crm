@@ -35,10 +35,19 @@ async function request<T>(method: string, path: string, opts: { body?: unknown; 
   }
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
-  if (!res.ok) throw toErrorFrom(res.status, json);
+  if (!res.ok) { const err = toErrorFrom(res.status, json); redirectToSso(err); throw err; }
   return json as T;
 }
 
+/** A workspace that requires single sign-on answered 403 SSO_REQUIRED: send the user through their identity provider (at most once a minute, no loops). */
+function redirectToSso(err: ApiError) {
+  if (err.code !== 'SSO_REQUIRED' || typeof window === 'undefined') return;
+  const slug = (err.details as { slug?: string } | undefined)?.slug;
+  if (!slug) return;
+  try { const last = Number(sessionStorage.getItem('lf_sso_redirect') ?? 0); if (Date.now() - last < 60_000) return; sessionStorage.setItem('lf_sso_redirect', String(Date.now())); } catch { /* storage unavailable: still redirect once per page load */ }
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation to the API (redirects to the identity provider)
+  window.location.href = `/api/auth/sso/start?workspace=${encodeURIComponent(slug)}&next=${encodeURIComponent(window.location.pathname)}`;
+}
 async function toError(res: Response) {
   return toErrorFrom(res.status, await res.json().catch(() => null));
 }
@@ -57,6 +66,25 @@ export const api = {
   put: <T = unknown>(path: string, body?: unknown) => request<{ data: T }>('PUT', path, { body: body ?? {} }).then((r) => r.data),
   del: <T = unknown>(path: string) => request<{ data: T }>('DELETE', path, {}).then((r) => r.data),
   upload: <T = unknown>(path: string, file: File, params?: Params) => { const f = new FormData(); f.append('file', file); return request<{ data: T }>('POST', path, { form: f, params }).then((r) => r.data); },
+  /** Multipart upload of several files with progress (fetch cannot report upload progress, so XMLHttpRequest is used). */
+  uploadMany: <T = unknown>(path: string, files: File[], onProgress?: (fraction: number) => void, field = 'files') => new Promise<T>((resolve, reject) => {
+    const f = new FormData();
+    for (const file of files) f.append(field, file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api${path}`);
+    xhr.withCredentials = true;
+    if (activeOrgId) xhr.setRequestHeader('X-Org-Id', activeOrgId);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK', 'Network error — the upload did not complete. Check your connection and try again.'));
+    xhr.onabort = () => reject(new ApiError(0, 'ABORTED', 'Upload canceled.'));
+    xhr.onload = () => {
+      let json: { data?: T; error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null = null;
+      try { json = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300 && json?.data !== undefined) resolve(json.data);
+      else reject(new ApiError(xhr.status, json?.error?.code ?? 'ERROR', json?.error?.message ?? 'The upload failed. Please try again.', undefined, json?.error?.details));
+    };
+    xhr.send(f);
+  }),
   /** Downloads a file response (CSV / XLSX exports) and triggers a browser save. */
   download: async (path: string, params?: Params, tenant = true) => {
     const res = await request<Response>('GET', path, { params, raw: true, tenant });

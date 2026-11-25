@@ -131,7 +131,7 @@ followups.get('/calendar', { query: z.object({ from: z.coerce.date(), to: z.coer
   ]);
   const u = await usersById([...fus.map((f) => f.assignedToId), ...tasks.map((t) => t.assignedToId)]);
   return [
-    ...fus.map((f) => ({ id: f.id, kind: 'followup' as const, title: `${typeLabel(f.type)} · ${fullName(f.lead)}`, start: f.dueAt, status: f.status, overdue: f.status === 'PENDING' && f.dueAt.getTime() < now, priority: f.priority, type: f.type, leadId: f.leadId, assignee: lite(u, f.assignedToId) })),
-    ...tasks.map((t) => ({ id: t.id, kind: 'task' as const, title: t.title, start: t.dueAt!, status: t.status, overdue: !['DONE', 'CANCELED'].includes(t.status) && t.dueAt!.getTime() < now, priority: t.priority, type: 'TASK', leadId: t.leadId, assignee: lite(u, t.assignedToId) })),
+    ...fus.map((f) => ({ id: f.id, kind: 'followup' as const, title: `${typeLabel(f.type)} · ${fullName(f.lead)}`, start: f.dueAt, status: f.status, overdue: f.status === 'PENDING' && f.dueAt.getTime() < now, priority: f.priority, type: f.type, leadId: f.leadId, assignee: lite(u, f.assignedToId), assigneeId: f.assignedToId, canReschedule: f.status === 'PENDING' && ctx.can('followups.manage') && (f.assignedToId === ctx.userId || ctx.can('followups.view_all')) })),
+    ...tasks.map((t) => ({ id: t.id, kind: 'task' as const, title: t.title, start: t.dueAt!, status: t.status, overdue: !['DONE', 'CANCELED'].includes(t.status) && t.dueAt!.getTime() < now, priority: t.priority, type: 'TASK', leadId: t.leadId, assignee: lite(u, t.assignedToId), assigneeId: t.assignedToId, canReschedule: ['TODO', 'IN_PROGRESS'].includes(t.status) && ctx.can('tasks.manage') && (t.assignedToId === ctx.userId || ctx.can('tasks.view_all')) })),
   ].sort((a, b) => a.start.getTime() - b.start.getTime());
 });

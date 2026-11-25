@@ -38,7 +38,7 @@ export async function workspacesFor(userId: string) {
   return rows.map((m) => ({
     membershipId: m.id, status: m.status,
     organization: {
-      id: m.organization.id, name: m.organization.name, slug: m.organization.slug, logoData: presentLogo(m.organization.id, m.organization.logoData), status: m.organization.status,
+      id: m.organization.id, name: m.organization.name, slug: m.organization.slug, ssoEnforced: m.organization.ssoEnforced, logoData: presentLogo(m.organization.id, m.organization.logoData), status: m.organization.status,
       onboardingCompleted: !!m.organization.onboardingCompletedAt, currency: m.organization.currency, timezone: m.organization.timezone,
     },
     role: { id: m.role.id, name: m.role.name, key: m.role.systemKey, permissions: m.role.permissions },

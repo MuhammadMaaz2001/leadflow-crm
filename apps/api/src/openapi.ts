@@ -25,7 +25,7 @@ export function openApiDocument() {
       security: secured ? [{ sessionCookie: [] }] : [],
       parameters: [...params, ...queryParams, ...(r.auth === 'org' ? [{ name: 'X-Org-Id', in: 'header', required: true, schema: { type: 'string', format: 'uuid' } }] : [])],
       ...(r.body ? { requestBody: { required: true, content: { 'application/json': { schema: schemaOf(r.body) } } } } : {}),
-      ...(r.upload ? { requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } } } } } : {}),
+      ...(r.upload ? { requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: r.multi ? { files: { type: 'array', items: { type: 'string', format: 'binary' } } } : { file: { type: 'string', format: 'binary' } } } } } } } : {}),
       responses: { '200': { description: 'OK — { data, meta? }' }, '400': { description: 'Validation error' }, '401': { description: 'Unauthenticated' }, '403': { description: 'Forbidden / not a member / missing permission' }, '402': { description: 'Plan limit or feature restriction' } },
     };
   }

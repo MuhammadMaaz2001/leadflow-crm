@@ -10,11 +10,14 @@ import { db, prisma, withContext } from './db';
 import { sha256 } from './lib/crypto';
 import { reportError } from './lib/error-report';
 import { bindRequestPrincipal } from './lib/logger';
+import { dbErrors } from './lib/metrics';
 
 export type PlatformRoleName = 'SUPER_ADMIN' | 'SUPPORT_ADMIN' | 'BILLING_ADMIN';
 
 export interface SessionUser {
   id: string; email: string; name: string; platformRole: PlatformRoleName | null; emailVerifiedAt: Date | null; sessionId: string;
+  /** How this session was created: 'PASSWORD' or 'SSO' (and, for SSO, the workspace it authenticates). */
+  authMethod: 'PASSWORD' | 'SSO'; ssoOrgId: string | null;
 }
 
 export interface Ctx {
@@ -33,6 +36,10 @@ export interface Ctx {
 
 export class Reply {
   constructor(public status: number, public body: unknown) {}
+}
+/** A redirect sent only AFTER the request's transaction committed (so a session created in it is visible when the browser follows the redirect). */
+export class RedirectReply {
+  constructor(public url: string, public status: 302 | 303 = 302) {}
 }
 export class FileReply {
   constructor(public filename: string, public contentType: string, public buffer: Buffer) {}
@@ -57,7 +64,9 @@ export interface RouteOptions<B = unknown, Q = unknown> {
   /** Allow even when the workspace is suspended. */
   allowSuspended?: boolean;
   platformRoles?: PlatformRoleName[];
-  upload?: boolean;
+  upload?: boolean | { maxBytes: number };
+  /** Several files in the multipart field "files" (lead attachments); size / count limits come from configuration. */
+  uploadMany?: boolean;
 }
 
 export interface HandlerArgs<B, Q> {
@@ -74,11 +83,12 @@ type Handler<B, Q> = (a: HandlerArgs<B, Q>) => Promise<unknown>;
 // ── OpenAPI registry ──
 export interface RouteDoc {
   method: string; path: string; summary: string; tag: string; auth: string; perm?: string[]; feature?: string;
-  body?: ZodType; query?: ZodType; upload?: boolean;
+  body?: ZodType; query?: ZodType; upload?: boolean; multi?: boolean;
 }
 export const routeRegistry: RouteDoc[] = [];
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const uploadMany = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.attachmentMaxBytes, files: config.attachmentMaxFilesPerRequest, fields: 5, parts: config.attachmentMaxFilesPerRequest + 5 } }).array('files', config.attachmentMaxFilesPerRequest);
 
 export async function resolveSession(req: Request): Promise<SessionUser | null> {
   const token = req.cookies?.[config.cookieName] ?? (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined);
@@ -90,7 +100,7 @@ export async function resolveSession(req: Request): Promise<SessionUser | null> 
     prisma.session.update({ where: { id: s.id }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
   }
   const u = s.user;
-  return { id: u.id, email: u.email, name: u.name, platformRole: u.platformRole, emailVerifiedAt: u.emailVerifiedAt, sessionId: s.id };
+  return { id: u.id, email: u.email, name: u.name, platformRole: u.platformRole, emailVerifiedAt: u.emailVerifiedAt, sessionId: s.id, authMethod: s.authMethod === 'SSO' ? 'SSO' : 'PASSWORD', ssoOrgId: s.ssoOrgId };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -105,6 +115,10 @@ async function buildCtx(req: Request, user: SessionUser, opts: RouteOptions): Pr
   if (m.status !== 'ACTIVE') throw forbidden('Your access to this workspace has been deactivated', 'MEMBER_DEACTIVATED');
   const org = await tx.organization.findUnique({ where: { id: raw } });
   if (!org) throw forbidden('Workspace unavailable', 'NOT_A_MEMBER');
+  // SSO-only workspace: a password session cannot open it. Owners keep password access (break-glass) so a broken identity provider can always be repaired.
+  if (org.ssoEnforced && !(user.authMethod === 'SSO' && user.ssoOrgId === org.id) && m.role.systemKey !== 'OWNER') {
+    throw new AppError(403, 'SSO_REQUIRED', 'This workspace requires single sign-on. Sign in with your company account.', { slug: org.slug });
+  }
   const sub = await tx.subscription.findUnique({ where: { organizationId: raw }, include: { plan: true } });
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
   if (org.status === 'SUSPENDED' && !opts.allowSuspended) throw forbidden('This workspace has been suspended. Contact support.', 'WORKSPACE_SUSPENDED');
@@ -141,6 +155,8 @@ export function validationError(err: ZodError) {
 }
 
 function send(res: Response, out: unknown) {
+  if (res.headersSent) return;
+  if (out instanceof RedirectReply) { res.redirect(out.status, out.url); return; }
   if (out instanceof RawReply) {
     for (const [k, v] of Object.entries(out.headers)) res.setHeader(k, v);
     res.setHeader('Content-Type', out.contentType);
@@ -164,6 +180,7 @@ export function route<B = unknown, Q = unknown>(opts: RouteOptions<B, Q>, handle
   const auth = opts.auth ?? 'org';
   const main: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      res.locals.routePattern = `${req.baseUrl}${req.route?.path ?? ''}`;     // for metrics: the baseUrl is gone by the time an error response is sent
       const params = req.params as Record<string, string>;
       // Authentication, tenancy and permission checks happen BEFORE input validation so callers learn nothing about payload rules unless authorised.
       const parsed = () => ({ body: parseWith(opts.body, req.body) as B, query: parseWith(opts.query, req.query) as Q });
@@ -203,7 +220,8 @@ export function route<B = unknown, Q = unknown>(opts: RouteOptions<B, Q>, handle
       next(e);
     }
   };
-  return opts.upload ? [upload.single('file'), main] : [main];
+  const single = typeof opts.upload === 'object' ? multer({ storage: multer.memoryStorage(), limits: { fileSize: opts.upload.maxBytes, files: 1, fields: 10 } }).single('file') : upload.single('file');
+  return opts.uploadMany ? [uploadMany, main] : opts.upload ? [single, main] : [main];
 }
 
 /** Small typed router wrapper that also feeds the OpenAPI registry. */
@@ -214,7 +232,7 @@ export function defineRoutes(tag: string, prefix: string) {
       routeRegistry.push({
         method, path: `/api${prefix}${path}`.replace(/:(\w+)/g, '{$1}').replace(/\/$/, '') || '/', summary: opts.summary ?? `${method.toUpperCase()} ${prefix}${path}`, tag,
         auth: opts.auth ?? 'org', perm: opts.perm ? (Array.isArray(opts.perm) ? opts.perm : [opts.perm]) : undefined, feature: opts.feature,
-        body: opts.body as ZodType | undefined, query: opts.query as ZodType | undefined, upload: opts.upload,
+        body: opts.body as ZodType | undefined, query: opts.query as ZodType | undefined, upload: !!(opts.upload || opts.uploadMany), multi: opts.uploadMany,
       });
       router[method](`${prefix}${path}`.replace(/\/$/, "") || "/", ...route(opts, handler));
     };
@@ -255,13 +273,20 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
     return;
   }
   if ((err as { code?: string })?.code === 'LIMIT_FILE_SIZE') {
-    res.status(413).json({ error: { code: 'FILE_TOO_LARGE', message: 'The file is too large (limit 8 MB).' } });
+    const req2 = req.path.includes('/attachments'); const imp = req.path.includes('/import/');
+    res.status(413).json({ error: { code: 'FILE_TOO_LARGE', message: `The file is too large (limit ${req2 ? Math.floor(config.attachmentMaxBytes / 1024 / 1024) : imp ? Math.floor(config.importMaxFileBytes / 1024 / 1024) : 8} MB).` } });
+    return;
+  }
+  if (['LIMIT_FILE_COUNT', 'LIMIT_UNEXPECTED_FILE', 'LIMIT_PART_COUNT'].includes((err as { code?: string })?.code ?? '')) {
+    res.status(400).json({ error: { code: 'TOO_MANY_FILES', message: `You can upload at most ${config.attachmentMaxFilesPerRequest} files at a time, in the "files" field.` } });
     return;
   }
   if ((err as { type?: string })?.type === 'entity.parse.failed') {
     res.status(400).json({ error: { code: 'BAD_JSON', message: 'Malformed JSON body' } });
     return;
   }
+  const dbCode = (err as { code?: string; name?: string })?.code;
+  if ((err as { name?: string })?.name?.startsWith('PrismaClient')) dbErrors.inc({ code: /^P\d{4}$/.test(String(dbCode)) ? String(dbCode) : 'other' });
   const requestId = (req as Request & { id?: string }).id;
   reportError(err, `${req.method} ${req.route?.path ?? 'unmatched'}`, { requestId });
   res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on our side', requestId } });

@@ -1,0 +1,88 @@
+{
+  "label": "l100k",
+  "tag": "before",
+  "samples": 12,
+  "at": "2026-11-25T10:36:51.096Z",
+  "results": [
+    {
+      "name": "rare existing (full e-mail)",
+      "q": "liam.kim74261@acme483.test",
+      "matches": 1,
+      "p50": 610.6,
+      "p95": 872.7,
+      "max": 872.7
+    },
+    {
+      "name": "rare existing (e-mail local part)",
+      "q": "liam.kim74261",
+      "matches": 1,
+      "p50": 624.6,
+      "p95": 783.7,
+      "max": 783.7
+    },
+    {
+      "name": "no match (worst case)",
+      "q": "zzqxkv",
+      "matches": 0,
+      "p50": 474.9,
+      "p95": 548,
+      "max": 548
+    },
+    {
+      "name": "common surname",
+      "q": "smith",
+      "matches": 5000,
+      "p50": 223.8,
+      "p95": 327.6,
+      "max": 327.6
+    },
+    {
+      "name": "common first name",
+      "q": "olivia",
+      "matches": 5000,
+      "p50": 224,
+      "p95": 234.5,
+      "max": 234.5
+    },
+    {
+      "name": "two common terms",
+      "q": "olivia smith",
+      "matches": 250,
+      "p50": 247.8,
+      "p95": 285.1,
+      "max": 285.1
+    },
+    {
+      "name": "company fragment",
+      "q": "acme 12",
+      "matches": 6878,
+      "p50": 342.4,
+      "p95": 418.2,
+      "max": 418.2
+    },
+    {
+      "name": "e-mail domain fragment",
+      "q": "@acme1",
+      "matches": 11211,
+      "p50": 222.7,
+      "p95": 316.3,
+      "max": 316.3
+    },
+    {
+      "name": "phone digits",
+      "q": "5554261",
+      "matches": 10,
+      "p50": 508.3,
+      "p95": 592.9,
+      "max": 592.9
+    },
+    {
+      "name": "2 characters",
+      "q": "li",
+      "matches": 24000,
+      "p50": 199.6,
+      "p95": 337.4,
+      "max": 337.4
+    }
+  ]
+}

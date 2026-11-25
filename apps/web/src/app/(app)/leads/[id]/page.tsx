@@ -2,7 +2,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { Archive, ArrowLeft, Building2, CalendarClock, CalendarPlus, Check, CheckCircle2, ChevronDown, Clock, Handshake, Mail, MoreHorizontal, Pencil, Phone, Plus, RotateCcw, StickyNote, Trophy, UserPlus, XCircle } from 'lucide-react';
+import { Archive, ArrowLeft, Building2, CalendarClock, CalendarPlus, Check, CheckCircle2, ChevronDown, Clock, Handshake, Mail, MoreHorizontal, Paperclip, Pencil, Phone, Plus, RotateCcw, StickyNote, Trophy, UserPlus, XCircle } from 'lucide-react';
 import { ACTIVITY_LABELS } from '@leadflow/shared';
 import { api } from '@/lib/api';
 import { useAct, useOrg, useT } from '@/lib/session';
@@ -16,6 +16,7 @@ import { useConfirm } from '@/components/ui/overlay';
 import { PriorityDot, SourceTag, StatusBadge, followUpIcon } from '@/components/badges';
 import { TagChip } from '@/components/tag-picker';
 import { LeadFormSheet } from '@/components/lead-form';
+import { LeadAttachments } from '@/components/lead-attachments';
 import { AssignDialog, CancelFollowUpDialog, CompleteFollowUpDialog, LogActivityDialog, LostReasonDialog, OpportunityDialog, RescheduleDialog, ScheduleFollowUpDialog, TaskDialog } from '@/components/dialogs';
 import { useCustomFields } from '@/lib/hooks';
 import type { LeadRow } from '../page';
@@ -31,9 +32,9 @@ interface TaskRow { id: string; title: string; status: string; priority: string;
 
 const ACT_STYLE: Record<string, string> = {
   CALL: 'bg-info-soft text-info', EMAIL: 'bg-info-soft text-info', WHATSAPP: 'bg-ok-soft text-ok', MEETING: 'bg-accent-soft text-accent-ink', NOTE: 'bg-warn-soft text-warn',
-  OPPORTUNITY_WON: 'bg-ok-soft text-ok', OPPORTUNITY_LOST: 'bg-bad-soft text-bad', FOLLOWUP_COMPLETED: 'bg-ok-soft text-ok', FOLLOWUP_CANCELED: 'bg-bad-soft text-bad',
+  ATTACHMENT_ADDED: 'bg-accent-soft text-accent-ink', OPPORTUNITY_WON: 'bg-ok-soft text-ok', OPPORTUNITY_LOST: 'bg-bad-soft text-bad', FOLLOWUP_COMPLETED: 'bg-ok-soft text-ok', FOLLOWUP_CANCELED: 'bg-bad-soft text-bad',
 };
-const actIcon = (t: string) => ({ CALL: <Phone />, EMAIL: <Mail />, WHATSAPP: followUpIcon('WHATSAPP', 'size-3.5'), MEETING: followUpIcon('MEETING', 'size-3.5'), NOTE: <StickyNote />, OPPORTUNITY_WON: <Trophy />, OPPORTUNITY_LOST: <XCircle />, FOLLOWUP_COMPLETED: <CheckCircle2 />, FOLLOWUP_SCHEDULED: <CalendarClock />, FOLLOWUP_RESCHEDULED: <CalendarClock />, FOLLOWUP_CANCELED: <XCircle />, OPPORTUNITY_CREATED: <Handshake />, STAGE_CHANGED: <Handshake /> } as Record<string, React.ReactNode>)[t] ?? <Clock />;
+const actIcon = (t: string) => ({ ATTACHMENT_ADDED: <Paperclip />, ATTACHMENT_REMOVED: <Paperclip />, CALL: <Phone />, EMAIL: <Mail />, WHATSAPP: followUpIcon('WHATSAPP', 'size-3.5'), MEETING: followUpIcon('MEETING', 'size-3.5'), NOTE: <StickyNote />, OPPORTUNITY_WON: <Trophy />, OPPORTUNITY_LOST: <XCircle />, FOLLOWUP_COMPLETED: <CheckCircle2 />, FOLLOWUP_SCHEDULED: <CalendarClock />, FOLLOWUP_RESCHEDULED: <CalendarClock />, FOLLOWUP_CANCELED: <XCircle />, OPPORTUNITY_CREATED: <Handshake />, STAGE_CHANGED: <Handshake /> } as Record<string, React.ReactNode>)[t] ?? <Clock />;
 
 function Timeline({ leadId }: { leadId: string }) {
   const [page, setPage] = React.useState(1);
@@ -43,7 +44,7 @@ function Timeline({ leadId }: { leadId: string }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {[['', 'All'], ['CALL,EMAIL,WHATSAPP,MEETING', 'Conversations'], ['NOTE', 'Notes'], ['FOLLOWUP_SCHEDULED,FOLLOWUP_COMPLETED,FOLLOWUP_RESCHEDULED,FOLLOWUP_CANCELED', 'Follow-ups'], ['OPPORTUNITY_CREATED,STAGE_CHANGED,OPPORTUNITY_WON,OPPORTUNITY_LOST', 'Pipeline'], ['LEAD_ASSIGNED,LEAD_REASSIGNED', 'Assignments']].map(([v, l]) => (
+        {[['', 'All'], ['ATTACHMENT_ADDED,ATTACHMENT_REMOVED', 'Files'], ['CALL,EMAIL,WHATSAPP,MEETING', 'Conversations'], ['NOTE', 'Notes'], ['FOLLOWUP_SCHEDULED,FOLLOWUP_COMPLETED,FOLLOWUP_RESCHEDULED,FOLLOWUP_CANCELED', 'Follow-ups'], ['OPPORTUNITY_CREATED,STAGE_CHANGED,OPPORTUNITY_WON,OPPORTUNITY_LOST', 'Pipeline'], ['LEAD_ASSIGNED,LEAD_REASSIGNED', 'Assignments']].map(([v, l]) => (
           <button key={l} type="button" onClick={() => { setFilter(v!); setPage(1); }} className={cn('rounded-full border px-2.5 py-0.5 text-xs', filter === v ? 'border-accent bg-accent-soft font-medium text-accent-ink' : 'border-line text-ink-2 hover:bg-subtle')}>{l}</button>
         ))}
       </div>
@@ -169,6 +170,7 @@ export default function LeadDetailPage() {
                   <TabsTrigger value="followups">Follow-ups {l.counts.pendingFollowUps > 0 && <Badge tone="accent" className="ml-1">{l.counts.pendingFollowUps}</Badge>}</TabsTrigger>
                   <TabsTrigger value="opps">Opportunities <Badge className="ml-1">{l.opportunities.length}</Badge></TabsTrigger>
                   <TabsTrigger value="tasks">Tasks {l.counts.openTasks > 0 && <Badge tone="warn" className="ml-1">{l.counts.openTasks}</Badge>}</TabsTrigger>
+                  <TabsTrigger value="files">Files</TabsTrigger>
                   <TabsTrigger value="history">Assignments</TabsTrigger>
                 </TabsList>
                 <div className="p-4 sm:p-5">
@@ -202,6 +204,7 @@ export default function LeadDetailPage() {
                         </li>))}</ul>
                     )}
                   </TabsContent>
+                  <TabsContent value="files"><LeadAttachments leadId={id} archived={!!l.archivedAt} /></TabsContent>
                   <TabsContent value="history">
                     {!assignments.data?.length ? <EmptyState className="py-10" title="Never assigned" description="Ownership changes will be recorded here." /> : (
                       <ol className="space-y-3">{assignments.data.map((a) => <li key={a.id} className="flex gap-3 text-[13px]"><UserPlus className="mt-0.5 size-4 shrink-0 text-ink-3" /><div><p>{a.from ? <><b>{a.from.name}</b> → </> : null}{a.to ? <b>{a.to.name}</b> : <b>Unassigned</b>} <Badge className="ml-1">{titleCase(a.method)}</Badge></p><p className="text-xs text-ink-3">{a.assignedBy ? `by ${a.assignedBy.name} · ` : ''}{fmtDateTime(a.createdAt)}{a.note ? ` · ${a.note}` : ''}</p></div></li>)}</ol>

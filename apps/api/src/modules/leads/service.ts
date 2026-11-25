@@ -260,6 +260,7 @@ export async function mergeLeads(ctx: Ctx, sourceId: string, targetId: string, o
     followUps: (await db().followUp.updateMany({ where: { leadId: source.id, organizationId: ctx.orgId }, data: { leadId: target.id } })).count,
     tasks: (await db().task.updateMany({ where: { leadId: source.id, organizationId: ctx.orgId }, data: { leadId: target.id } })).count,
     opportunities: (await db().opportunity.updateMany({ where: { leadId: source.id, organizationId: ctx.orgId }, data: { leadId: target.id } })).count,
+    attachments: (await db().leadAttachment.updateMany({ where: { leadId: source.id, organizationId: ctx.orgId }, data: { leadId: target.id } })).count,
   };
   const srcTags = await db().leadTag.findMany({ where: { leadId: source.id, organizationId: ctx.orgId } });
   if (srcTags.length) await db().leadTag.createMany({ data: srcTags.map((t) => ({ organizationId: ctx.orgId, leadId: target.id, tagId: t.tagId })), skipDuplicates: true });

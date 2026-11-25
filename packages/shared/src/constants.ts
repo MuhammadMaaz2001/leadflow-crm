@@ -45,6 +45,7 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   FOLLOWUP_SCHEDULED: 'Follow-up scheduled', FOLLOWUP_COMPLETED: 'Follow-up completed', FOLLOWUP_RESCHEDULED: 'Follow-up rescheduled',
   FOLLOWUP_CANCELED: 'Follow-up canceled', TASK_CREATED: 'Task created', TASK_COMPLETED: 'Task completed',
   OPPORTUNITY_CREATED: 'Opportunity created', STAGE_CHANGED: 'Stage changed', OPPORTUNITY_WON: 'Opportunity won', OPPORTUNITY_LOST: 'Opportunity lost',
+  ATTACHMENT_ADDED: 'File attached', ATTACHMENT_REMOVED: 'File removed',
 };
 
 /** Manually loggable interaction types. These count as "contact attempts" in reports. */

@@ -17,7 +17,11 @@ beforeAll(async () => {
     const chunks: Buffer[] = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
-      if (req.method === 'PUT') { objects.set(key, { body: Buffer.concat(chunks), type: String(req.headers['content-type']) }); res.writeHead(200, { ETag: '"x"' }).end(); }
+      if (req.method === 'GET' && (req.url ?? '').includes('list-type=2')) {
+        const prefix = new URL(req.url!, 'http://x').searchParams.get('prefix') ?? '';
+        const items = [...objects.keys()].filter((k) => k.startsWith(`/leadflow-test/${prefix}`)).map((k) => `<Contents><Key>${k.slice('/leadflow-test/'.length)}</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified><Size>1</Size></Contents>`).join('');
+        res.writeHead(200, { 'content-type': 'application/xml' }).end(`<?xml version="1.0"?><ListBucketResult><Name>leadflow-test</Name><Prefix>${prefix}</Prefix><KeyCount>1</KeyCount><IsTruncated>false</IsTruncated>${items}</ListBucketResult>`);
+      } else if (req.method === 'PUT') { objects.set(key, { body: Buffer.concat(chunks), type: String(req.headers['content-type']) }); res.writeHead(200, { ETag: '"x"' }).end(); }
       else if (req.method === 'GET') { const o = objects.get(key); if (!o) { res.writeHead(404, { 'content-type': 'application/xml' }).end('<Error><Code>NoSuchKey</Code></Error>'); } else res.writeHead(200, { 'content-type': o.type, 'content-length': o.body.length }).end(o.body); }
       else if (req.method === 'DELETE') { objects.delete(key); res.writeHead(204).end(); }
       else res.writeHead(405).end();
@@ -116,5 +120,14 @@ describe('object storage failures and private-bucket behaviour', () => {
     expect(url).not.toMatch(/^https?:/);
     const key = [...objects.keys()].find((k) => k.includes(`/logos/${owner.orgId}/`))!;
     expect(key).toMatch(/^\/leadflow-test\/logos\/[0-9a-f-]{36}\/[0-9a-f]{24}\.png$/);          // server-generated key: org id + content hash, never a user supplied name
+  });
+
+  it('lists objects under a prefix (used by the attachment orphan sweeper)', async () => {
+    const st = new S3Storage({ endpoint, region: 'us-east-1', bucket: 'leadflow-test', accessKeyId: 'test', secretAccessKey: 'test', forcePathStyle: true });
+    await st.put('attachments/org-1/l/a.pdf', Buffer.from('x'), 'application/pdf'); await st.put('attachments/org-2/l/b.pdf', Buffer.from('y'), 'application/pdf');
+    const l = await st.list('attachments/org-1/');
+    expect(l.map((o) => o.key)).toEqual(['attachments/org-1/l/a.pdf']);
+    expect(l[0]!.lastModified).toBeInstanceOf(Date);
+    await st.delete('attachments/org-1/l/a.pdf'); await st.delete('attachments/org-2/l/b.pdf');
   });
 });

@@ -10,6 +10,7 @@ import { closeQueue } from './lib/queue';
 import { installProcessHandlers, onShutdown } from './lib/shutdown';
 import { platformPrisma, prisma } from './db';
 import { probeRole, roleProblems } from './lib/health';
+import { startMetricsServer } from './lib/metrics';
 
 async function main() {
   if (config.isProd) {
@@ -29,6 +30,8 @@ async function main() {
   server.keepAliveTimeout = 65_000; server.headersTimeout = 66_000; server.requestTimeout = 120_000;
   await new Promise<void>((resolve) => server.listen(config.port, resolve));
   log.info('API listening', { port: config.port, env: config.env, docs: config.apiDocs ? '/api/docs' : 'disabled', rateLimitStore: config.rateLimitStore });
+  const metricsServer = await startMetricsServer('api');
+  if (metricsServer) onShutdown('metrics-server', () => new Promise<void>((r) => metricsServer.close(() => r())));
   onShutdown('http-server', () => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeIdleConnections(); setTimeout(() => server.closeAllConnections(), Math.max(1000, config.shutdownTimeoutMs - 5000)).unref(); }));
   onShutdown('connections', async () => { await closeQueue(); await closeRedis(); await prisma.$disconnect(); await platformPrisma.$disconnect(); });
 }

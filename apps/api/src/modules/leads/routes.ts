@@ -13,21 +13,48 @@ import { emitTrigger } from '../automations/events';
 import {
   archiveLead, assignLead, createLead, findDuplicates, getLeadOr404, leadScope, mergeLeads, restoreLead, updateLead,
 } from './service';
-import { buildLeadWhere, leadInclude, leadListQuery, shapeLeads } from './queries';
+import { buildLeadWhere, leadInclude, leadListQuery, planSearch, shapeLeads } from './queries';
 import { exportLeads, exportQuery, importLeads, importOptions, tabular } from './transfer';
 
 export const leads = defineRoutes('Leads', '/leads');
 
 leads.get('/', { query: leadListQuery, summary: 'List leads (search, filters, sort, pagination)' }, async ({ ctx, query }) => {
-  const where = buildLeadWhere(ctx, query);
+  const where = buildLeadWhere(ctx, query, await planSearch(ctx.orgId, query.q));
+  if (query.cursor !== undefined) return cursorPage(ctx, query, where);
   const orderBy = query.sort === 'name' ? [{ firstName: query.order }, { lastName: query.order }] : query.sort === 'company' ? [{ companyName: query.order }] : [{ [query.sort]: query.order }];
   const [total, rows] = await Promise.all([
     // exact for normal workspaces; ≤ 20 s old for very large ones (see lib/cache.ts) — the rows themselves are always live
-    cachedForLarge(ctx.orgId, `lead-total:${hashKey(where)}`, () => db().lead.count({ where })),
+    cachedForLarge(ctx.orgId, `lead-total:${hashKey(where)}`, () => db().lead.count({ where }), { leadVersioned: true }),
     db().lead.findMany({ where, include: leadInclude, orderBy: orderBy as never, ...paginate(query) }),
   ]);
   return paged(await shapeLeads(ctx, rows), pageMeta(query, total));
 });
+
+/** Keyset (cursor) pagination for sort=createdAt: constant cost at any depth, stable under concurrent inserts (no skipped / repeated rows). */
+const encodeCursor = (l: { createdAt: Date; id: string }) => Buffer.from(JSON.stringify({ t: l.createdAt.toISOString(), i: l.id })).toString('base64url');
+function decodeCursor(c: string): { t: Date; i: string } | null {
+  if (c === 'start') return null;
+  try {
+    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { t?: string; i?: string };
+    const t = new Date(v.t ?? '');
+    if (Number.isNaN(t.getTime()) || !/^[0-9a-f-]{36}$/i.test(v.i ?? '')) throw new Error('bad');
+    return { t, i: v.i! };
+  } catch { throw badRequest('Invalid cursor. Start again with cursor=start.', undefined, 'INVALID_CURSOR'); }
+}
+async function cursorPage(ctx: Parameters<typeof buildLeadWhere>[0], query: z.infer<typeof leadListQuery>, where: ReturnType<typeof buildLeadWhere>) {
+  if (query.sort !== 'createdAt') throw badRequest('Cursor pagination is available when sorting by createdAt.', undefined, 'CURSOR_UNSUPPORTED_SORT');
+  const c = decodeCursor(query.cursor!);
+  const cmp = query.order === 'desc' ? 'lt' : 'gt';
+  const after: object[] = c ? [{ OR: [{ createdAt: { [cmp]: c.t } }, { createdAt: c.t, id: { [cmp]: c.i } }] }] : [];
+  const take = query.pageSize + 1;
+  const [total, rows] = await Promise.all([
+    cachedForLarge(ctx.orgId, `lead-total:${hashKey(where)}`, () => db().lead.count({ where }), { leadVersioned: true }),
+    db().lead.findMany({ where: { ...where, AND: [...(where.AND as object[]), ...after] as never }, include: leadInclude, orderBy: [{ createdAt: query.order }, { id: query.order }], take }),
+  ]);
+  const hasMore = rows.length > query.pageSize;
+  const page = hasMore ? rows.slice(0, query.pageSize) : rows;
+  return paged(await shapeLeads(ctx, page), { pageSize: query.pageSize, total, hasMore, nextCursor: hasMore ? encodeCursor(page[page.length - 1]!) : null });
+}
 
 leads.post('/', { perm: 'leads.create', body: leadSchema, summary: 'Create a lead (duplicate detection, auto-assignment, plan limit)' }, async ({ ctx, body }) => {
   const lead = await createLead(ctx, body);

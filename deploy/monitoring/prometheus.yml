@@ -1,0 +1,18 @@
+# Example Prometheus configuration for LeadFlow (NOT verified against a real Prometheus in this repository's CI — see PRODUCTION_READINESS.md).
+# The metrics listeners are separate from the public API port: METRICS_PORT (API) and WORKER_METRICS_PORT (worker).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+rule_files:
+  - alerts.yml
+scrape_configs:
+  - job_name: leadflow-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/leadflow-metrics-token     # the value of METRICS_TOKEN; keep it in your secret manager
+    static_configs:
+      - targets: ['api-1.internal:9464', 'api-2.internal:9464']             # private addresses only; one entry per API instance
+        labels: { component: api }
+      - targets: ['worker-1.internal:9465']
+        labels: { component: worker }

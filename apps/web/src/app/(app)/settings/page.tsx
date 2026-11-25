@@ -12,6 +12,7 @@ import { Checkbox, Field, FormError, Input, Select, Switch, Textarea } from '@/c
 import { Badge, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/data';
 import { Dialog, useConfirm } from '@/components/ui/overlay';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
+import { SsoSettings } from '@/components/sso-settings';
 import { NotificationPrefs } from '../notifications/page';
 import Link from 'next/link';
 
@@ -248,12 +249,13 @@ function CustomFieldsTab() {
 }
 
 export default function SettingsPage() {
+  const initialTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
   return (
     <>
       <PageHeader title="Workspace settings" description="Configure how your company works inside LeadFlow." />
-      <Tabs defaultValue="company">
+      <Tabs defaultValue={initialTab && ['sso', 'members', 'roles'].includes(initialTab) ? initialTab : 'company'}>
         <TabsList>
-          {[['company', 'Company'], ['members', 'Members'], ['roles', 'Roles & permissions'], ['sources', 'Lead sources'], ['priorities', 'Priorities'], ['pipelines', 'Pipelines'], ['fields', 'Custom fields'], ['tags', 'Tags'], ['lost', 'Lost reasons'], ['notifications', 'Notifications']].map(([v, l]) => <TabsTrigger key={v} value={v!}>{l}</TabsTrigger>)}
+          {[['company', 'Company'], ['members', 'Members'], ['roles', 'Roles & permissions'], ['sources', 'Lead sources'], ['priorities', 'Priorities'], ['pipelines', 'Pipelines'], ['fields', 'Custom fields'], ['tags', 'Tags'], ['lost', 'Lost reasons'], ['notifications', 'Notifications'], ['sso', 'Single sign-on']].map(([v, l]) => <TabsTrigger key={v} value={v!}>{l}</TabsTrigger>)}
         </TabsList>
         <div className="pt-5">
           <TabsContent value="company"><CompanyTab /></TabsContent>
@@ -266,6 +268,7 @@ export default function SettingsPage() {
           <TabsContent value="tags"><LookupManager title="Tags" description="Lightweight labels for filtering and bulk actions." path="/tags" noun="tag" /></TabsContent>
           <TabsContent value="lost"><LookupManager title="Lost reasons" description="Why deals are lost. Required when an opportunity is marked lost." path="/lost-reasons" noun="reason" withColor={false} /></TabsContent>
           <TabsContent value="notifications"><NotificationPrefs /></TabsContent>
+          <TabsContent value="sso"><React.Suspense><SsoSettings /></React.Suspense></TabsContent>
         </div>
       </Tabs>
     </>

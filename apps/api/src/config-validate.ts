@@ -59,13 +59,19 @@ export function validateProductionConfig(env: Record<string, string | undefined>
 
   const storage = env.STORAGE_PROVIDER ?? 'db';
   if (storage === 's3') { for (const n of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) if (!env[n]) err(`${n} is required for STORAGE_PROVIDER=s3.`); }
-  else if (storage === 'db') warn('STORAGE_PROVIDER=db keeps uploaded logos as base64 in PostgreSQL; use s3 for object storage.');
+  else if (storage === 'db') warn('STORAGE_PROVIDER=db keeps uploaded logos as base64 in PostgreSQL and DISABLES lead file attachments (they need object storage); use s3.');
   else err(`STORAGE_PROVIDER="${storage}" is not supported (db | s3).`);
 
   const pay = env.PAYMENT_PROVIDER ?? 'manual';
   if (pay !== 'manual') err(`PAYMENT_PROVIDER="${pay}" has no adapter installed; only "manual" exists (invoices are paid by recording a payment).`);
   else warn('PAYMENT_PROVIDER=manual: no card processing; payments are recorded by a platform administrator.');
 
+  const metricsHost = env.METRICS_HOST ?? '127.0.0.1';
+  const isLoopback = ['127.0.0.1', '::1', 'localhost'].includes(metricsHost);
+  if ((env.METRICS_PORT || env.WORKER_METRICS_PORT) && !isLoopback && (env.METRICS_TOKEN ?? '').length < 24) err('METRICS_TOKEN (at least 24 characters) is required when METRICS_HOST is not a loopback address: the metrics endpoint must not be open to the network.');
+  if (env.METRICS_PORT && env.METRICS_PORT === (env.API_PORT ?? '4000')) err('METRICS_PORT must differ from API_PORT: metrics are never served on the public API port.');
+  if (env.METRICS_PORT && env.METRICS_PORT === env.WORKER_METRICS_PORT) err('METRICS_PORT and WORKER_METRICS_PORT must differ.');
+  if (!env.METRICS_PORT && !env.WORKER_METRICS_PORT) warn('Metrics are disabled (METRICS_PORT / WORKER_METRICS_PORT unset): there will be no Prometheus data to alert on.');
   if (!env.SESSION_COOKIE_NAME) warn('SESSION_COOKIE_NAME not set; default "lf_session" is used.');
   return { errors, warnings };
 }
