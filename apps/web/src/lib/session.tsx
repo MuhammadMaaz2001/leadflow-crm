@@ -23,7 +23,6 @@ export interface OrgInfo {
   role: { id: string; key: string | null }; permissions: string[];
   subscription: { status: string; planCode: string; planName: string; features: string[]; trialEndsAt: string | null; currentPeriodEnd: string; graceEndsAt: string | null; interval: string } | null;
   usage: { leads: number; seats: number; pendingInvites: number; opportunities: number; followUps: number; maxLeads: number; maxSeats: number };
-  billing?: { selfServiceManualPayment: boolean };
 }
 
 export function makeQueryClient() {

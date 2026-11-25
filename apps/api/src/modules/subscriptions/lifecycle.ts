@@ -1,7 +1,5 @@
-import type { Prisma } from '@leadflow/database';
 import { addDays } from 'date-fns';
 import { db } from '../../db';
-import { AppError } from '../../lib/errors';
 import { notify } from '../notifications/service';
 import { GRACE_PERIOD_DAYS, nextInvoiceNumber, periodEnd, recordSubscriptionEvent } from './service';
 
@@ -58,28 +56,4 @@ export async function runSubscriptionLifecycle(orgId: string, now = new Date()) 
     await recordSubscriptionEvent(orgId, { type: 'EXPIRED', fromPlanCode: sub.plan.code, status: 'EXPIRED', note: 'Grace period ended without payment; workspace is read-only' });
     await notify({ userIds: owners, type: 'BILLING', title: 'Subscription expired', body: 'Your workspace is now read-only. Pay the outstanding invoice to restore access.', link: '/billing', dedupeKey: `expired:${sub.id}:${sub.graceEndsAt.getTime()}` });
   }
-}
-
-/** Mark an invoice paid (manual / development payment) and apply the plan it bought. */
-export async function applyPayment(invoiceId: string, opts: { actorId: string | null; reference: string; method?: string; note?: string }, client: Prisma.TransactionClient = db()) {
-  const inv = await client.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
-  const now = new Date();
-  // Atomic claim: of two concurrent payments for one invoice exactly one wins, so the subscription period is extended once.
-  const claimed = await client.invoice.updateMany({ where: { id: inv.id, status: { in: ['OPEN', 'FAILED'] } }, data: { status: 'PAID', paidAt: now, paymentMethod: opts.method ?? 'MANUAL_DEV', paymentReference: opts.reference, recordedById: opts.actorId, failedAt: null, failureReason: null } });
-  if (claimed.count !== 1) throw new AppError(409, 'ALREADY_PAID', inv.status === 'PAID' ? 'This invoice is already paid.' : `This invoice is ${inv.status.toLowerCase()} and cannot be paid.`);
-  if (inv.planId && inv.periodStart && inv.periodEnd) {
-    const sub = await client.subscription.findUnique({ where: { organizationId: inv.organizationId }, include: { plan: true } });
-    const plan = await client.subscriptionPlan.findUniqueOrThrow({ where: { id: inv.planId } });
-    if (sub) {
-      // an upgrade starts a fresh period now; a renewal continues from the previous period end
-      const start = inv.periodStart > now ? now : inv.periodStart;
-      const isRenewal = sub.planId === inv.planId && sub.currentPeriodEnd <= now;
-      const s = isRenewal ? inv.periodStart : now;
-      void start;
-      const e = isRenewal ? inv.periodEnd : periodEnd(now, inv.interval ?? 'MONTHLY');
-      await client.subscription.update({ where: { id: sub.id }, data: { planId: plan.id, interval: inv.interval ?? 'MONTHLY', status: 'ACTIVE', trialEndsAt: null, currentPeriodStart: s, currentPeriodEnd: e, graceEndsAt: null, pendingPlanId: null, pendingInterval: null, cancelAtPeriodEnd: false } });
-      await client.subscriptionEvent.create({ data: { organizationId: inv.organizationId, type: sub.planId === plan.id ? 'RENEWED' : 'PLAN_CHANGED', fromPlanCode: sub.plan.code, toPlanCode: plan.code, status: 'ACTIVE', actorId: opts.actorId, note: `Invoice ${inv.number} recorded as paid (${opts.method ?? 'MANUAL_DEV'}, ref ${opts.reference})` } });
-    }
-  }
-  return inv;
 }

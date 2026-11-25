@@ -76,12 +76,12 @@ tasks.get('/:id', { summary: 'Task detail with comments' }, async ({ ctx, params
 tasks.patch('/:id', { perm: 'tasks.manage', body: taskUpdateSchema, summary: 'Update a task / change status' }, async ({ ctx, params, body }) => {
   const t = await getTask(ctx, params.id);
   const data: Prisma.TaskUncheckedUpdateInput = { ...body };
-  if (body.assignedToId) { await assertActiveMember(ctx, body.assignedToId, 'Assignee'); if (body.assignedToId !== t.assignedToId) data.reminderSentAt = null; }
+  if (body.assignedToId) { await assertActiveMember(ctx, body.assignedToId, 'Assignee'); if (body.assignedToId !== t.assignedToId) { data.reminderSentAt = null; data.overdueNotifiedAt = null; } }
   if (body.status && body.status !== t.status) {
     if (body.status === 'DONE') { data.completedAt = new Date(); data.completedById = ctx.userId; }
     else { data.completedAt = null; data.completedById = null; }
   }
-  if (body.dueAt !== undefined && body.dueAt?.getTime() !== t.dueAt?.getTime()) data.reminderSentAt = null;
+  if (body.dueAt !== undefined && body.dueAt?.getTime() !== t.dueAt?.getTime()) { data.reminderSentAt = null; data.overdueNotifiedAt = null; }
   const u = await db().task.update({ where: { id: t.id }, data });
   if (body.status === 'DONE' && t.status !== 'DONE' && t.leadId) await logActivity({ leadId: t.leadId, opportunityId: t.opportunityId, type: 'TASK_COMPLETED', title: `Task completed: ${t.title}`, metadata: { taskId: t.id } });
   if (body.assignedToId && body.assignedToId !== t.assignedToId) await notify({ userIds: [body.assignedToId], type: 'TASK_ASSIGNED', title: `Task assigned to you: ${u.title}`, link: '/tasks', entityType: 'task', entityId: t.id, exceptUserId: ctx.userId });

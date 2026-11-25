@@ -11,7 +11,7 @@ import { config } from '../config';
 import { db, prisma, setOrg, withContext } from '../db';
 import { hashPassword } from '../lib/crypto';
 import { bootstrapWorkspace } from '../modules/organizations/bootstrap';
-import { ensurePlans, nextInvoiceNumber, periodEnd } from '../modules/subscriptions/service';
+import { ensurePlans, periodEnd } from '../modules/subscriptions/service';
 
 export const DEMO_PASSWORD = 'Demo#Pass2026';
 export const ADMIN_PASSWORD = 'Admin#Pass2026';
@@ -52,6 +52,7 @@ async function seedOrg(spec: OrgSpec) {
     agents: await Promise.all(spec.agents.map(([n, e]) => upsertUser(n, e, DEMO_PASSWORD))),
   };
   const orgId = randomUUID();
+  const paidInvoices: Array<Parameters<PrismaClient['invoice']['create']>[0]['data']> = [];
   await withContext({ orgId, userId: users.owner.id }, async () => {
     const tx = db();
     await tx.organization.create({ data: { id: orgId, name: spec.name, slug: spec.slug, industry: spec.industry, timezone: spec.tz, currency: spec.currency, contactEmail: `hello@${spec.slug}.test`, website: `https://${spec.slug}.test`, country: spec.tz.startsWith('Europe') ? 'Germany' : 'United States', createdById: users.owner.id, onboardingCompletedAt: new Date(), autoAssignMode: spec.key === 're' ? 'ROUND_ROBIN' : 'NONE', createdAt: subDays(now, 75) } });
@@ -66,9 +67,10 @@ async function seedOrg(spec: OrgSpec) {
       { organizationId: orgId, type: 'TRIAL_STARTED', toPlanCode: 'professional', status: 'TRIALING', actorId: users.owner.id, note: '14-day trial', createdAt: subDays(now, 75) },
       { organizationId: orgId, type: 'PLAN_CHANGED', fromPlanCode: 'professional', toPlanCode: spec.plan, status: 'ACTIVE', actorId: users.owner.id, note: 'Invoice recorded as paid (MANUAL_DEV)', createdAt: subDays(now, 60) },
     ] });
-    for (const [i, d] of [60, 30].entries()) {
-      void i;
-      await tx.invoice.create({ data: { organizationId: orgId, number: await nextInvoiceNumber(), planId: plan.id, interval: 'MONTHLY', description: `${plan.name} plan — monthly ${d === 60 ? 'subscription' : 'renewal'}`, status: 'PAID', amount: plan.priceMonthly, currency: 'USD', periodStart: subDays(now, d), periodEnd: subDays(now, d - 30), issuedAt: subDays(now, d), dueAt: subDays(now, d), paidAt: subDays(now, d), paymentMethod: 'MANUAL_DEV', paymentReference: `SEED-${d}`, recordedById: users.owner.id } });
+    // Paid invoices can only be written by the platform billing role (a database guard blocks the tenant role),
+    // so they are collected here and inserted after the tenant transaction, exactly as production billing would.
+    for (const d of [60, 30]) {
+      paidInvoices.push({ organizationId: orgId, number: `LF-${now.getUTCFullYear()}-${orgId.slice(0, 4).toUpperCase()}-${String(paidInvoices.length + 1).padStart(4, '0')}`, planId: plan.id, interval: 'MONTHLY', description: `${plan.name} plan — monthly ${d === 60 ? 'subscription' : 'renewal'}`, status: 'PAID', amount: plan.priceMonthly, currency: 'USD', periodStart: subDays(now, d), periodEnd: subDays(now, d - 30), issuedAt: subDays(now, d), dueAt: subDays(now, d), paidAt: subDays(now, d), paymentMethod: 'MANUAL_DEV', paymentReference: `SEED-${d}`, recordedById: users.owner.id });
     }
 
     const sources = await tx.leadSource.findMany({ where: { organizationId: orgId } });
@@ -197,6 +199,8 @@ async function seedOrg(spec: OrgSpec) {
     // keep automation seed enabled/disabled according to plan: professional gets all templates, starter keeps them too
     void setOrg; void SYSTEM_ROLES; void DEFAULT_PLANS;
   });
+  const platform = new PrismaClient({ datasourceUrl: config.ownerDatabaseUrl });
+  try { for (const data of paidInvoices) await platform.invoice.create({ data }); } finally { await platform.$disconnect(); }
   return { orgId, users };
 }
 

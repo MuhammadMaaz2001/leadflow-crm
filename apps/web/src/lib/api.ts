@@ -1,6 +1,6 @@
 /** Minimal typed fetch client. Every tenant request carries the active workspace in X-Org-Id (validated server-side). */
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public fields?: Record<string, string>) {
+  constructor(public status: number, public code: string, message: string, public fields?: Record<string, string>, public details?: Record<string, unknown>) {
     super(message);
   }
 }
@@ -42,9 +42,9 @@ async function request<T>(method: string, path: string, opts: { body?: unknown; 
 async function toError(res: Response) {
   return toErrorFrom(res.status, await res.json().catch(() => null));
 }
-function toErrorFrom(status: number, json: { error?: { code?: string; message?: string; details?: { fields?: Record<string, string> } } } | null) {
+function toErrorFrom(status: number, json: { error?: { code?: string; message?: string; details?: { fields?: Record<string, string> } & Record<string, unknown> } } | null) {
   const e = json?.error;
-  return new ApiError(status, e?.code ?? 'ERROR', e?.message ?? 'Something went wrong. Please try again.', e?.details?.fields);
+  return new ApiError(status, e?.code ?? 'ERROR', e?.message ?? 'Something went wrong. Please try again.', e?.details?.fields, e?.details as Record<string, unknown> | undefined);
 }
 
 export interface Paged<T> { data: T[]; meta: { page: number; pageSize: number; total: number; totalPages: number; [k: string]: unknown } }

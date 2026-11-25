@@ -1,6 +1,6 @@
 # Development progress
 
-Last verified: 2026-11-24 (product audit → [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md); production-readiness engineering → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)). Built from scratch in this repository (no previously shared code was used). Status below reflects what was **actually executed and verified** in this environment (PostgreSQL 16, Redis 7, Node 22, Chromium via Playwright).
+Last verified: 2026-11-25 (feature-completion audit → [FEATURE_MATRIX.md](FEATURE_MATRIX.md); product audit → [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md); production-readiness engineering → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)). Built from scratch in this repository (no previously shared code was used). Status below reflects what was **actually executed and verified** in this environment (PostgreSQL 16, Redis 7, Node 22, Chromium via Playwright).
 
 ## Milestones
 - [x] **M0** Environment inspected: empty git repo, Node 22, PostgreSQL 16 and Redis 7 available locally (no Docker)
@@ -15,15 +15,15 @@ Last verified: 2026-11-24 (product audit → [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md
 ## Verified results
 | Check | Result |
 |---|---|
-| API integration tests (Vitest + Supertest, real PostgreSQL + Redis, schema recreated from migrations on every run) | **134 / 134 pass** in 12 files (auth, lifecycle, isolation, business, settings, security, database, infrastructure & concurrency, operations, storage, payments, real processes) |
+| API integration tests (Vitest + Supertest, real PostgreSQL + Redis, schema recreated from migrations on every run) | **198 / 198 pass** in 20 files (auth, lifecycle, isolation, business, settings, security, database, infrastructure & concurrency, operations, storage, payments, real processes, **manual billing, leads-complete, assignment, automation engine, reports vs raw rows, plan enforcement, pipeline integrity, activity/tasks**) |
 | Web unit tests (Vitest + Testing Library) | **20 / 20 pass** |
-| Playwright e2e (Chromium, production web build) | **28 / 28 pass** — acceptance journey, leads, permissions, 11 module specs, roles/workspaces/platform, security (CSP + headers + cookies), responsive |
+| Playwright e2e (Chromium, production web build) | **30 / 30 pass** — acceptance journey, leads (incl. server-side saved views), permissions, module specs (incl. manual billing), roles/workspaces/platform, **completeness (hand-over, automation actions, billing UI, mobile layout)**, security (CSP + headers + cookies), responsive |
 | TypeScript (strict) `npm run typecheck` | clean for shared, api, web |
 | Lint `npm run lint` (ESLint flat config, `--max-warnings=0`) | clean |
 | Production build `npm run build` | succeeds (shared → Prisma client → API `tsc` → `next build`, 36 routes); built API runs with `node apps/api/dist/server.js` |
-| Migrations | 10 migrations apply cleanly on an empty database (every API test run) and upgrade a populated old-schema database in place (`scripts/migration-compat.sh`) |
+| Migrations | 14 migrations apply cleanly on an empty database (every API test run) and upgrade a populated old-schema database in place (`scripts/migration-compat.sh`) |
 | Seed | 2 organizations, 3 platform admins, 76 leads, opportunities, follow-ups, tasks, activities, notifications, invoices, usage history |
-| OpenAPI | 155 endpoints documented (`/api/docs` in development, `docs/openapi.json`, `API_DOCUMENTATION.md`) |
+| OpenAPI | 164 endpoints documented (`/api/docs` in development, `docs/openapi.json`, `API_DOCUMENTATION.md`) |
 | Background jobs | BullMQ worker verified live: minute scheduler created reminder/re-engagement tasks from seeded data; inline mode used by tests |
 | Console / network errors | crawled every workspace and platform route as manager, owner and platform admin: no console errors, no failed API calls, no horizontal overflow at 1440px / 390px |
 
@@ -44,13 +44,23 @@ Full report with evidence, measurements and the **list of launch blockers**: **[
 * **Operations:** JSON logs with request ids, slow-query log, error hook, `/api/health/{live,ready}`, `/platform/health` with workers + scheduler, role-level DB timeouts, Dockerfile + deploy templates, DEPLOYMENT / BACKUP_RECOVERY / RUNBOOK documents.
 * **Load tests (30k / 100k / 250k leads, shared 4-core VM):** found and fixed: pure-JS bcrypt capping login at ~12/s, linear `count(*)`/dashboard cost (large-workspace result cache). Open: search cost grows with workspace size; throughput on production hardware unmeasured.
 
+## Feature-completion audit (2026-11-25)
+Row-by-row status of every capability (verified / needs external validation / partial / missing / blocked) with the test that covers it: **[FEATURE_MATRIX.md](FEATURE_MATRIX.md)**. The product is **not** declared production-ready (blockers: PRODUCTION_READINESS.md §1).
+* **Manual billing (new, first-class):** platform billing admins confirm payments received outside the system and extend 1/3/6/12 months or custom days with a previous→new expiry preview; atomic transaction with row lock, idempotency, receipts, history, reversal of the latest payment; database triggers and RLS make it impossible for the tenant role to mark paid or extend (the old tenant "record payment" endpoint was removed). Migration `20261127090000_manual_billing`.
+* **Leads:** server-side saved views (`20261127091000_saved_views`), strict custom-field validation (no silent truncation/coercion), tag rename/delete restricted, import/export caps now explicit errors instead of silent truncation, custom fields in exports.
+* **Team:** deactivating a member requires handing over (or explicitly releasing) their leads/deals/follow-ups/tasks in one transaction.
+* **Automation:** new `ASSIGN_LEAD` and `CREATE_FOLLOWUP` actions; no re-triggering from automation actions, hourly budget and rule cap, archived leads skipped, failed attempts counted.
+* **Tasks/notifications:** task due/overdue reminders (`20261127092000_task_overdue_flag`) with de-duplication; the overdue notice is no longer suppressed by the reminder flag.
+* **Reports:** 3 new reports (lead status, activity, task performance); every figure verified against independently computed raw-row totals; dashboard pipeline no longer counts deals of archived leads.
+* **Operations:** `/platform/health` shows applied migrations, workers and providers (`20261127093000_platform_health_read`); the dev seed now writes paid invoices through the platform role.
+* **Bugs found by the new tests and fixed:** failed automation executions did not count attempts; overdue-task notice suppressed by the reminder flag; archived leads' deals inflated the dashboard pipeline; platform health showed 0 migrations; import/export silently truncated at the cap; agents could rename/delete tags; custom-field values silently coerced; deactivation orphaned work; mobile overlap on the platform billing card.
+
 ## Acceptance workflow (all verified end-to-end by `apps/web/e2e/acceptance.spec.ts`)
 1. user registers → 2. verifies email (dev link) → 3. creates workspace → 4. onboarding wizard (details, sources, assignment, invitations) → 5. invited manager & agent join → 6. manager creates a lead (duplicate protection checked) → 7. assigns it → 8. salesperson sees it → 9. logs a call → 10. schedules a follow-up → 11. it appears in the calendar → 12–13. scheduler generates the reminder → 14. follow-up completed with mandatory outcome → 15. opportunity created, moved with drag & drop → 16–17. won → 18. timeline shows every change → 19. dashboard KPIs update → 20. reports reflect the data → 21. a second company cannot access the first company's data (UI and API spoofing) → 22. plan limits are enforced → 23. platform administrator suspends / re-activates the workspace and adjusts its subscription.
 
 ## Known limitations
-* **No external integrations (by scope)**: no payment processor, no email/SMS/WhatsApp delivery. Emails go to the DB-backed dev mailbox; payments are recorded manually and labelled as such. Notifications are in-app only.
+* **No external integrations (by scope)**: no payment processor, no email/SMS/WhatsApp delivery. Emails go to the DB-backed dev mailbox (or SMTP when configured, never exercised against a real server here); payments are confirmed manually by platform billing admins. Notifications are in-app only.
 * **Prisma `migrate reset`** refuses to run when invoked by an AI agent (safety guard) — `npm run db:reset` must be run by a human; `npm run db:seed` is idempotent for the demo workspaces and was used instead.
-* Saved lead views are stored in the browser (localStorage) per workspace, not on the server.
 * CSV/Excel import is synchronous and capped at 2,000 rows per file; exports at 20,000 rows.
 * Calendar day/week views are agenda style (no drag-to-reschedule); `datetime-local` inputs use the browser timezone while reports use the workspace timezone.
 * The global `users` table has no RLS (needed for login); API code never lists users outside a workspace and the platform DB role cannot read CRM tables. Platform admins deliberately see only aggregate usage for an organization.
@@ -59,4 +69,4 @@ Full report with evidence, measurements and the **list of launch blockers**: **[
 * The scheduler walks workspaces sequentially each minute; very large deployments would shard it.
 
 ## Remaining work / next steps
-Real email provider + payment processor adapters (interfaces are isolated in `lib/email.ts` and the billing `applyPayment`), server-side saved views, background import for large files, 2FA, object storage for logos/attachments, dark theme, calendar drag-and-drop.
+Resume here: (1) the launch blockers B1–B10 in PRODUCTION_READINESS.md (staging deployment, real SMTP/S3/managed DB validation, 2FA for platform admins, load test on real hardware); (2) product gaps in FEATURE_MATRIX.md (lead attachments, background import for large files, calendar drag-and-drop, dark theme, metrics exporter); (3) a real payment-provider adapter only if the business later decides to add one (interfaces in `payment-provider.ts`, manual billing stays). Older list: 2FA, object storage for logos/attachments, dark theme, calendar drag-and-drop.

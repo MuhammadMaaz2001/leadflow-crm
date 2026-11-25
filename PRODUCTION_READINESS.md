@@ -22,6 +22,8 @@ development environment passes. The items below are *not* verified or not done, 
 
 Everything else requested is implemented and covered by automated tests (details below).
 
+**Update 2026-11-25 (feature-completion phase).** B1–B9 are unchanged — none of them can be closed from the development environment. B10 is clarified: payments are manual **by decision**, and that workflow is now complete and database-enforced (see [FEATURE_MATRIX.md](FEATURE_MATRIX.md) §7). New residual risks introduced or revealed by this phase: (a) the only record of confirmed payments is PostgreSQL, so the restore drill must include the ledger reconciliation described in docs/BACKUP_RECOVERY.md; (b) platform billing admins are powerful and have no 2FA (B5 now also protects billing); (c) import is synchronous (2,000 rows) and exports are capped at 20,000 rows.
+
 ## 2. What was done
 
 ### 2.1 Dependency security
@@ -175,6 +177,21 @@ See **DEPLOYMENT.md** (roles, migrations, rollout, first-time setup), `Dockerfil
 
 New automated tests added in this phase: infrastructure/idempotency/concurrency (24), operations/config/logging/headers/health/shutdown (17), real-process tests (3), storage (5), payments (7), database verification (1), web CSP (4), Playwright security (2) — 63 in total.
 
+### 5.1 Re-run after the feature-completion phase (2026-11-25)
+| Check | Result |
+|---|---|
+| `npm run lint` / `npm run typecheck` | clean |
+| API tests | **198 / 198** (20 files) |
+| Web unit tests | **20 / 20** |
+| Playwright e2e (production web build) | **30 / 30** |
+| `npm run build` | succeeds |
+| `npm audit` | 0 vulnerabilities |
+| `npm run scan:secrets` | no secrets in 64 browser bundle files |
+| `npm run db:verify` | passed (14 migrations applied, none unfinished) |
+| `scripts/migration-compat.sh` | passed (old-schema database upgraded in place) |
+| `npm run docs:api` | 164 endpoints |
+| Load tests, Docker build, real SMTP/S3/managed DB | **not re-run / not run** (B1–B4, B6) |
+
 ## 6. Pre-launch checklist
 1. Build and deploy to staging from `main`; run `check:config`, migrations, `db:verify`, the full e2e suite against it (B1).
 2. Real SMTP + S3 credentials in staging; send/receive each email type; upload/replace/remove a logo (B2, B3).
@@ -184,3 +201,4 @@ New automated tests added in this phase: infrastructure/idempotency/concurrency 
 6. 24-hour soak with alerts wired to: readiness 503, scheduler stale, failed jobs, 5xx rate, `UNDELIVERABLE`/`FAILED` emails (B8).
 7. External penetration test; accessibility review.
 8. Never run `db:seed` in production; create the first platform super admin manually (DEPLOYMENT.md §8).
+9. Rehearse the manual-billing procedure end to end in staging (docs/RUNBOOK.md → Manual billing): confirm, extend, reverse, restore from backup and reconcile the ledger.

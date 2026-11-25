@@ -43,7 +43,9 @@ cp .env.example .env
 | `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE` | – , 587 | SMTP settings (STARTTLS enforced in production unless `SMTP_SECURE=true`) |
 | `STORAGE_PROVIDER` | `db` | `db` (logos inline in PostgreSQL) or `s3` |
 | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | – | S3-compatible object storage (private bucket) |
-| `PAYMENT_PROVIDER` | `manual` | Only `manual` exists. Any other value is rejected |
+| `PAYMENT_PROVIDER` | `manual` | Only `manual` exists. Any other value is rejected. Payments are recorded by platform billing admins |
+| `AUTOMATION_MAX_PER_HOUR` | 2000 | Safety budget: automation executions per workspace per hour; beyond it new events are not processed and a warning is logged (protects against runaway rules and huge imports) |
+| `AUTOMATION_MAX_RULES` | 50 | Maximum automation rules per workspace |
 | `CSP_UPGRADE_INSECURE_REQUESTS` | – | Web: add `upgrade-insecure-requests` to the CSP when served over https |
 
 `NODE_ENV=production npm run check:config` validates a real environment against the production rules; the API and worker run it at start-up.

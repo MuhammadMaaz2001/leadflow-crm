@@ -1,10 +1,10 @@
 'use client';
-import { CheckCircle2, Cpu, Database, HardDrive, Layers, XCircle } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Cpu, Database, HardDrive, Layers, Mail, XCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Badge, Card, CardHeader, KeyValue, PageHeader, Skeleton } from '@/components/ui/data';
 
-interface H { status: string; checks: { database: { ok: boolean; latencyMs: number }; redis: { ok: boolean }; queue: { ok: boolean; counts: Record<string, number> | null } }; system: { node: string; uptimeSeconds: number; memoryMb: number; loadAvg: number[]; env: string; appliedMigrations: number }; jobsMode: string }
+interface H { status: string; checks: { database: { ok: boolean; latencyMs: number }; redis: { ok: boolean }; queue: { ok: boolean; counts: Record<string, number> | null } }; system: { node: string; uptimeSeconds: number; memoryMb: number; loadAvg: number[]; env: string; appliedMigrations: number }; jobsMode: string; workers: { workers: number; schedulerLastRunAt: string | null; schedulerAgeSeconds: number | null; schedulerStale: boolean; lastRun?: { durationMs?: number; orgs?: number; failed?: number } } | null; providers?: { email: { provider: string; configured: boolean; realDelivery: boolean }; storage: string; payment: string; rateLimitStore: string } }
 const Check = ({ ok, label, detail, icon }: { ok: boolean; label: string; detail?: string; icon: React.ReactNode }) => <Card className="flex items-center gap-3 p-4"><span className={`flex size-10 items-center justify-center rounded-lg [&>svg]:size-5 ${ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad'}`}>{icon}</span><div className="flex-1"><p className="text-[13px] font-semibold">{label}</p><p className="text-xs text-ink-3">{detail}</p></div>{ok ? <CheckCircle2 className="size-5 text-ok" /> : <XCircle className="size-5 text-bad" />}</Card>;
 
 export default function HealthPage() {
@@ -20,6 +20,14 @@ export default function HealthPage() {
             <Check ok={h.checks.redis.ok} label="Redis" detail="Queue and scheduler store" icon={<HardDrive />} />
             <Check ok={h.checks.queue.ok} label="Job queue (BullMQ)" detail={h.checks.queue.counts ? Object.entries(h.checks.queue.counts).map(([k, v]) => `${k} ${v}`).join(' · ') : 'unavailable'} icon={<Layers />} />
           </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {h.jobsMode === 'inline'
+              ? <Check ok label="Background jobs" detail="Run inside the API process (development / single process)" icon={<Cpu />} />
+              : <Check ok={!!h.workers && h.workers.workers > 0} label="Workers" detail={h.workers ? `${h.workers.workers} running (heartbeat every 10 s)` : 'status unavailable'} icon={<Cpu />} />}
+            {h.jobsMode !== 'inline' && <Check ok={!!h.workers && !h.workers.schedulerStale} label="Scheduler (every minute)" detail={h.workers?.schedulerLastRunAt ? `last tick ${h.workers.schedulerAgeSeconds}s ago${h.workers.lastRun?.orgs !== undefined ? ` · ${h.workers.lastRun.orgs} workspaces, ${h.workers.lastRun.failed ?? 0} failed` : ''}` : 'no tick recorded yet'} icon={<CalendarClock />} />}
+            {h.providers && <Check ok={h.providers.email.configured} label={`Email: ${h.providers.email.provider}`} detail={h.providers.email.realDelivery ? 'Delivering through the configured provider' : h.providers.email.configured ? 'Development mailbox — nothing leaves the system' : 'No provider configured — emails are marked undeliverable'} icon={<Mail />} />}
+          </div>
+          {h.providers && <p className="mt-3 text-xs text-ink-3">Storage: <b>{h.providers.storage}</b> · Payments: <b>{h.providers.payment}</b> (manual confirmation) · Rate-limit store: <b>{h.providers.rateLimitStore}</b></p>}
           <Card className="mt-4"><CardHeader title="Runtime" /><dl className="divide-y divide-line px-4 pb-3"><KeyValue label="Job mode">{h.jobsMode}</KeyValue><KeyValue label="Environment">{h.system.env}</KeyValue><KeyValue label="Node">{h.system.node}</KeyValue><KeyValue label="Uptime">{Math.floor(h.system.uptimeSeconds / 3600)}h {Math.floor((h.system.uptimeSeconds % 3600) / 60)}m</KeyValue><KeyValue label="Memory (RSS)">{h.system.memoryMb} MB</KeyValue><KeyValue label="Load average">{h.system.loadAvg.join(' · ')}</KeyValue><KeyValue label="Applied migrations">{h.system.appliedMigrations}</KeyValue></dl></Card>
           <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-3"><Cpu className="size-3.5" />Refreshes every 10 seconds.</p>
         </>

@@ -95,3 +95,26 @@ describe('object storage for logos (S3-compatible)', () => {
     expect(presentLogo('0'.repeat(8) + '-0000-0000-0000-' + '0'.repeat(12), 'storage:logos/x/y.png')).toMatch(/^\/api\/organizations\/.+\/logo\?v=/);
   });
 });
+
+describe('object storage failures and private-bucket behaviour', () => {
+  it('a storage outage never changes the workspace, never leaks internals, and uploads need no public access', async () => {
+    const owner = await createWorkspace(await signUp('Fail Owner'), `StoreF ${uniq()}`);
+    const before = (await ownerPrisma.organization.findUniqueOrThrow({ where: { id: owner.orgId! } })).logoData;
+    const failing = new S3Storage({ endpoint: 'http://127.0.0.1:1', region: 'us-east-1', bucket: 'leadflow-test', accessKeyId: 'test', secretAccessKey: 'test', forcePathStyle: true });
+    setObjectStorage(failing);
+    try {
+      const r = await owner.patch('/organizations/current', { logoData: PNG });
+      expect(r.status).toBe(503); expect(r.body.error.code).toBe('STORAGE_UNAVAILABLE');
+      expect(JSON.stringify(r.body)).not.toMatch(/127\.0\.0\.1|ECONNREFUSED|leadflow-test/);
+      expect((await ownerPrisma.organization.findUniqueOrThrow({ where: { id: owner.orgId! } })).logoData).toBe(before);
+    } finally { setObjectStorage(new S3Storage({ endpoint, region: 'us-east-1', bucket: 'leadflow-test', accessKeyId: 'test', secretAccessKey: 'test', forcePathStyle: true })); }
+    // the bytes only ever travel with the application's credentials: the fake bucket would accept anonymous reads, the app never hands out such a URL
+    const ok = await owner.patch('/organizations/current', { logoData: PNG });
+    expect(ok.status).toBe(200);
+    const url = ok.body.data.logoData as string;
+    expect(url.startsWith('/api/organizations/')).toBe(true);                       // an application route, not a bucket URL
+    expect(url).not.toMatch(/^https?:/);
+    const key = [...objects.keys()].find((k) => k.includes(`/logos/${owner.orgId}/`))!;
+    expect(key).toMatch(/^\/leadflow-test\/logos\/[0-9a-f-]{36}\/[0-9a-f]{24}\.png$/);          // server-generated key: org id + content hash, never a user supplied name
+  });
+});

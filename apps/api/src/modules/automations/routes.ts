@@ -7,16 +7,19 @@ import { enqueue } from '../../lib/queue';
 import { created, defineRoutes, paged } from '../../http';
 import { pageMeta, paginate, pageQuery } from '../../lib/pagination';
 import { assertActiveMember } from '../leads/service';
+import { config } from '../../config';
 
 export const automations = defineRoutes('Automations', '');
 
 automations.get('/automations', { perm: ['automations.manage', 'settings.manage'], summary: 'List automation rules' }, async ({ ctx }) => {
   const rules = await db().automationRule.findMany({ where: { organizationId: ctx.orgId }, orderBy: [{ isSystem: 'desc' }, { createdAt: 'asc' }] });
+  const lastHour = config.automationMaxPerHour > 0 ? await db().automationExecution.count({ where: { organizationId: ctx.orgId, createdAt: { gt: new Date(Date.now() - 3_600_000) } } }) : 0;
   const stats = await db().automationExecution.groupBy({ by: ['ruleId', 'status'], where: { organizationId: ctx.orgId }, _count: true });
   const last = await db().automationExecution.groupBy({ by: ['ruleId'], where: { organizationId: ctx.orgId }, _max: { createdAt: true } });
   const lm = new Map(last.map((l) => [l.ruleId, l._max.createdAt]));
   return {
     featureEnabled: ctx.plan.features.includes('automations'),
+    throttled: config.automationMaxPerHour > 0 && lastHour >= config.automationMaxPerHour, hourlyCap: config.automationMaxPerHour, executionsLastHour: lastHour,
     triggers: AUTOMATION_TRIGGERS,
     rules: rules.map((r) => ({ ...r, stats: Object.fromEntries(stats.filter((s) => s.ruleId === r.id).map((s) => [s.status, s._count])), lastRunAt: lm.get(r.id) ?? null })),
   };
@@ -24,8 +27,9 @@ automations.get('/automations', { perm: ['automations.manage', 'settings.manage'
 
 async function validateRefs(ctx: Parameters<typeof assertActiveMember>[0], body: z.infer<typeof automationSchema>) {
   for (const a of body.actions) {
-    if ((a.type === 'NOTIFY' && a.recipient === 'USER') || (a.type === 'CREATE_TASK' && a.assignee === 'USER')) {
-      const uid = a.type === 'NOTIFY' ? a.userId : a.userId;
+    if (a.type === 'ASSIGN_LEAD' && a.mode === 'USER' && !a.userId) throw new AppError(400, 'VALIDATION_ERROR', 'Choose who the lead is assigned to');
+    if ((a.type === 'NOTIFY' && a.recipient === 'USER') || ((a.type === 'CREATE_TASK' || a.type === 'CREATE_FOLLOWUP') && a.assignee === 'USER') || (a.type === 'ASSIGN_LEAD' && a.mode === 'USER')) {
+      const uid = a.userId;
       if (!uid) throw new AppError(400, 'VALIDATION_ERROR', 'Choose a user for the action');
       await assertActiveMember(ctx, uid, 'Action recipient');
     }
@@ -36,6 +40,7 @@ async function validateRefs(ctx: Parameters<typeof assertActiveMember>[0], body:
 }
 
 automations.post('/automations', { perm: 'automations.manage', feature: 'automations', body: automationSchema, summary: 'Create an automation rule' }, async ({ ctx, body }) => {
+  if ((await db().automationRule.count({ where: { organizationId: ctx.orgId } })) >= config.automationMaxRules) throw new AppError(409, 'TOO_MANY_RULES', `A workspace can have up to ${config.automationMaxRules} automation rules.`);
   await validateRefs(ctx, body);
   const r = await db().automationRule.create({ data: { organizationId: ctx.orgId, name: body.name, description: body.description ?? null, trigger: body.trigger, conditions: body.conditions, actions: body.actions, isEnabled: body.isEnabled ?? true, createdById: ctx.userId } });
   await audit(ctx, 'automation.created', 'automation_rule', r.id, { name: r.name });
@@ -99,11 +104,14 @@ automations.patch('/assignment-rules/:id', { perm: 'settings.manage', feature: '
   const r = await db().assignmentRule.findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
   if (!r) throw notFound('Rule');
   if (body.assigneeIds) for (const id of body.assigneeIds) await assertActiveMember(ctx, id, 'Assignee');
-  return db().assignmentRule.update({ where: { id: r.id }, data: body });
+  const upd = await db().assignmentRule.update({ where: { id: r.id }, data: body });
+  await audit(ctx, 'assignment_rule.updated', 'assignment_rule', r.id, { fields: Object.keys(body) });
+  return upd;
 });
 automations.delete('/assignment-rules/:id', { perm: 'settings.manage', summary: 'Delete an assignment rule' }, async ({ ctx, params }) => {
   const r = await db().assignmentRule.findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
   if (!r) throw notFound('Rule');
   await db().assignmentRule.delete({ where: { id: r.id } });
+  await audit(ctx, 'assignment_rule.deleted', 'assignment_rule', r.id);
   return { deleted: true };
 });

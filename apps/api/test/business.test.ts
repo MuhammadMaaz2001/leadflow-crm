@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { addDays, addHours } from 'date-fns';
 import ExcelJS from 'exceljs';
-import { addMember, boot, createWorkspace, makePlatformAdmin, ownerPrisma, signUp, type Actor } from './helpers';
+import { addMember, boot, confirmInvoicePaid, createWorkspace, makePlatformAdmin, ownerPrisma, signUp, type Actor } from './helpers';
 import { runSchedulerTick } from '../src/modules/automations/scheduler';
 
 beforeAll(boot);
@@ -157,7 +157,7 @@ describe('plan limits & subscription lifecycle', () => {
     const up = await owner.post('/billing/change-plan', { planCode: 'starter', interval: 'MONTHLY' });
     expect(up.body.data.applied).toBe('pending_payment');
     expect((await owner.get('/organizations/current')).body.data.subscription.planCode).toBe('free');
-    const pay = await owner.post(`/billing/invoices/${up.body.data.invoiceId}/record-payment`, { reference: 'DEV-REF-1' });
+    const pay = await confirmInvoicePaid(up.body.data.invoiceId, 'DEV-REF-1');
     expect(pay.status).toBe(200);
     const after = await owner.get('/organizations/current');
     expect(after.body.data.subscription.planCode).toBe('starter');
@@ -165,7 +165,7 @@ describe('plan limits & subscription lifecycle', () => {
     expect((await owner.post('/leads', { firstName: 'Fits', email: 'fits@x.com' })).status).toBe(201);
     const billing = (await owner.get('/billing')).body.data;
     expect(billing.invoices[0].status).toBe('PAID');
-    expect(billing.invoices[0].paymentMethod).toBe('MANUAL_DEV');
+    expect(billing.invoices[0].paymentMethod).toBe('BANK_TRANSFER');
     expect(billing.events.map((e: { type: string }) => e.type)).toEqual(expect.arrayContaining(['TRIAL_STARTED', 'PLAN_CHANGED', 'UPGRADE_INVOICED']));
     // downgrade blocked while over limits is explained
     const down = await owner.post('/billing/change-plan', { planCode: 'free', interval: 'MONTHLY' });
@@ -175,7 +175,7 @@ describe('plan limits & subscription lifecycle', () => {
   it('runs renewal → grace period → expiry (read-only) and recovers when paid', async () => {
     const owner = await createWorkspace(await signUp('Expire Owner'), 'Expire Co');
     const up = await owner.post('/billing/change-plan', { planCode: 'starter', interval: 'MONTHLY' });
-    await owner.post(`/billing/invoices/${up.body.data.invoiceId}/record-payment`, { reference: 'R1' });
+    await confirmInvoicePaid(up.body.data.invoiceId, 'R1');
     const periodEnd = new Date((await owner.get('/billing')).body.data.subscription.currentPeriodEnd);
     await runSchedulerTick(addHours(periodEnd, 1));
     let b = (await owner.get('/billing')).body.data;
@@ -190,7 +190,7 @@ describe('plan limits & subscription lifecycle', () => {
     expect(blocked.status).toBe(402);
     expect(blocked.body.error.code).toBe('SUBSCRIPTION_EXPIRED');
     expect((await owner.get('/leads')).status).toBe(200); // read-only
-    const pay = await owner.post(`/billing/invoices/${b.invoices[0].id}/record-payment`, { reference: 'R2' });
+    const pay = await confirmInvoicePaid(b.invoices[0].id, 'R2');
     expect(pay.status).toBe(200);
     expect((await owner.post('/leads', { firstName: 'Back', email: 'back@x.com' })).status).toBe(201);
     expect((await owner.get('/billing')).body.data.subscription.status).toBe('ACTIVE');
@@ -316,11 +316,12 @@ describe('platform administration', () => {
     expect((await support.post(`/platform/organizations/${owner.orgId}/activate`)).status).toBe(200);
     expect((await owner.get('/leads')).status).toBe(200);
     // invoices & subscriptions (billing admin)
-    expect((await support.post(`/platform/invoices/${up.body.data.invoiceId}/mark-paid`, { reference: 'x' })).status).toBe(403);
-    expect((await billingA.post(`/platform/invoices/${up.body.data.invoiceId}/mark-paid`, { reference: 'WIRE-77' })).status).toBe(200);
+    expect((await support.post(`/platform/invoices/${up.body.data.invoiceId}/mark-paid`, { method: 'CASH', reference: 'x' })).status).toBe(403);
+    expect((await billingA.post(`/platform/invoices/${up.body.data.invoiceId}/mark-paid`, { method: 'BANK_TRANSFER', reference: 'WIRE-77' })).status).toBe(200);
     expect((await owner.get('/organizations/current')).body.data.subscription.planCode).toBe('professional');
-    const adj = await billingA.post(`/platform/subscriptions/${owner.orgId}/adjust`, { extendDays: 10, note: 'goodwill' });
+    const adj = await billingA.post(`/platform/subscriptions/${owner.orgId}/adjust`, { status: 'ACTIVE', note: 'goodwill status review' });
     expect(adj.status).toBe(200);
+    expect((await billingA.post(`/platform/subscriptions/${owner.orgId}/adjust`, { status: 'ACTIVE' })).status).toBe(400);   // a reason is mandatory
     // plans
     const plan = await superA.post('/platform/plans', { code: `custom${Date.now() % 100000}`, name: 'Custom', priceMonthly: 5, priceYearly: 50, trialDays: 0, maxLeads: 10, maxSeats: 1, features: [], isPublic: false, isActive: true, sortOrder: 9 });
     expect(plan.status).toBe(201);
@@ -331,8 +332,12 @@ describe('platform administration', () => {
     expect((await superA.get('/platform/usage')).status).toBe(200);
     expect((await superA.get('/platform/users?q=Platform')).body.data.length).toBeGreaterThan(0);
     const audit = await superA.get('/platform/audit-logs?scope=PLATFORM');
-    expect(audit.body.data.map((l: { action: string }) => l.action)).toEqual(expect.arrayContaining(['organization.suspended', 'organization.activated', 'invoice.marked_paid']));
-    expect((await superA.get('/platform/health')).body.data.checks.database.ok).toBe(true);
+    expect(audit.body.data.map((l: { action: string }) => l.action)).toEqual(expect.arrayContaining(['organization.suspended', 'organization.activated', 'billing.payment_confirmed']));
+    const health = (await superA.get('/platform/health')).body.data;
+    expect(health.checks.database.ok).toBe(true);
+    expect(health.system.appliedMigrations).toBeGreaterThanOrEqual(10);                 // the page used to report 0 because the role could not read the table
+    expect(health).toHaveProperty('providers.email.provider'); expect(health).toHaveProperty('workers');
+    expect(JSON.stringify(health)).not.toMatch(/postgres(ql)?:\/\/|password|secret|redis:\/\//i);   // no connection strings or credentials in the health payload
     // user deactivation revokes sessions
     const target = await signUp('To Deactivate');
     expect((await support.post(`/platform/users/${target.userId}/status`, { isActive: false })).status).toBe(200);

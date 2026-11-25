@@ -182,6 +182,9 @@ describe('database security verification tool (db:verify)', () => {
   it('passes on the migrated schema and flags a tenant table without row level security or a bypassing role', async () => {
     const { verifyDatabaseSecurity } = await import('../src/lib/db-verify');
     expect(await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow_app', platformRole: 'leadflow_platform' })).toEqual([]);
+    await ownerPrisma.$executeRawUnsafe(`GRANT INSERT ON payments TO leadflow_app`);
+    try { expect((await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow_app', platformRole: 'leadflow_platform' })).join('\n')).toMatch(/can INSERT on billing table payments/); }
+    finally { await ownerPrisma.$executeRawUnsafe(`REVOKE INSERT ON payments FROM leadflow_app`); }
     await ownerPrisma.$executeRawUnsafe(`CREATE TABLE zz_unprotected (id int, organization_id uuid)`);
     try {
       const p = await verifyDatabaseSecurity(ownerPrisma as never, { appRole: 'leadflow_app', platformRole: 'leadflow_platform' });

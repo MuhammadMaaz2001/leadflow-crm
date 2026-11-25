@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FormError, Input, Select, Switch } from '@/components/ui/form';
 import { Avatar, Badge, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/data';
 import { DataTable, type Column } from '@/components/ui/table';
-import { Dialog, Sheet, useConfirm } from '@/components/ui/overlay';
+import { Dialog, Sheet } from '@/components/ui/overlay';
 import { DropdownContent, DropdownItem, DropdownMenu, DropdownTrigger, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
 
 interface Role { id: string; name: string; systemKey: string | null; memberCount: number }
@@ -65,14 +65,38 @@ function MemberSheet({ member, onClose }: { member: Member | null; onClose: () =
   );
 }
 
+function DeactivateDialog({ member, members, onClose }: { member: Member | null; members: Member[]; onClose: () => void }) {
+  const [to, setTo] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [load, setLoad] = React.useState<{ leads: number; followUps: number; tasks: number; opportunities: number } | null>(null);
+  React.useEffect(() => { setTo(''); setError(null); setLoad(null); }, [member?.id]);
+  const m = useAct((transferTo?: string) => api.patch<{ transferred: { leads: number; followUps: number; tasks: number; opportunities: number } | null }>(`/members/${member!.id}`, { status: 'DEACTIVATED', ...(transferTo ? { transferTo } : {}) }), {
+    silent: true,
+    onSuccess: (r) => { toast.success(r.transferred ? `${member!.name} deactivated — ${r.transferred.leads} leads and ${r.transferred.followUps + r.transferred.tasks + r.transferred.opportunities} other items handed over` : `${member!.name} deactivated`); onClose(); },
+    onError: (e) => { const d = (e as { details?: { workload?: NonNullable<typeof load> } }).details; if (d?.workload) setLoad(d.workload); else setError(errMsg(e)); },
+  });
+  const others = members.filter((x) => x.status === 'ACTIVE' && x.id !== member?.id);
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()} size="sm" title={`Deactivate ${member?.name ?? ''}?`} description="They lose access to this workspace immediately. Their history stays."
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="danger" loading={m.isPending} disabled={!!load && !to} onClick={() => { setError(null); m.mutate(to || undefined); }}>Deactivate</Button></>}>
+      <div className="space-y-3"><FormError message={error} />
+        {load && (<>
+          <p className="rounded-lg border border-warn/30 bg-warn-soft p-3 text-[13px] text-warn">{member?.name} still owns <b>{load.leads}</b> lead{load.leads === 1 ? '' : 's'}, <b>{load.followUps}</b> follow-up{load.followUps === 1 ? '' : 's'}, <b>{load.tasks}</b> task{load.tasks === 1 ? '' : 's'} and <b>{load.opportunities}</b> open deal{load.opportunities === 1 ? '' : 's'}. Choose who takes them over.</p>
+          <Field label="Hand over to" required><Select aria-label="Hand over to" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select…</option>{others.map((x) => <option key={x.id} value={x.userId}>{x.name}</option>)}<option value="UNASSIGN">Nobody — release leads, tasks and deals (follow-ups come to me)</option></Select></Field>
+        </>)}
+      </div>
+    </Dialog>
+  );
+}
+
 export default function TeamPage() {
   const { can } = useOrg();
-  const confirm = useConfirm();
   const members = useMembers();
   const roles = useT(['roles'], () => api.get<Role[]>('/roles'));
   const invites = useT(['invitations'], () => api.get<Invite[]>('/invitations'), { enabled: can('team.manage') });
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [sel, setSel] = React.useState<Member | null>(null);
+  const [deactivating, setDeactivating] = React.useState<Member | null>(null);
   const patch = useAct((v: { id: string; body: Record<string, unknown> }) => api.patch(`/members/${v.id}`, v.body), { success: 'Member updated' });
   const revoke = useAct((id: string) => api.del(`/invitations/${id}`), { success: 'Invitation revoked' });
   const resend = useAct((id: string) => api.post<{ devInviteLink?: string }>(`/invitations/${id}/resend`), { success: 'New invitation link generated', onSuccess: (r) => r.devInviteLink && navigator.clipboard?.writeText(r.devInviteLink) });
@@ -93,7 +117,7 @@ export default function TeamPage() {
     { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'w-10', mobileLabel: '', cell: (m) => manage && m.role.key !== 'OWNER' ? (
       <DropdownMenu><DropdownTrigger asChild><Button variant="ghost" size="iconSm" aria-label={`Actions for ${m.name}`} onClick={(e) => e.stopPropagation()}><MoreHorizontal className="size-4" /></Button></DropdownTrigger>
         <DropdownContent onClick={(e) => e.stopPropagation()}>
-          {m.status === 'ACTIVE' ? <DropdownItem destructive icon={<UserX />} onSelect={async () => { if (await confirm({ title: `Deactivate ${m.name}?`, description: 'They lose access immediately. Their leads stay assigned until you reassign them.', confirmLabel: 'Deactivate', destructive: true })) patch.mutate({ id: m.id, body: { status: 'DEACTIVATED' } }); }}>Deactivate</DropdownItem> : <DropdownItem icon={<UserCheck />} onSelect={() => patch.mutate({ id: m.id, body: { status: 'ACTIVE' } })}>Reactivate</DropdownItem>}
+          {m.status === 'ACTIVE' ? <DropdownItem destructive icon={<UserX />} onSelect={() => setDeactivating(m)}>Deactivate…</DropdownItem> : <DropdownItem icon={<UserCheck />} onSelect={() => patch.mutate({ id: m.id, body: { status: 'ACTIVE' } })}>Reactivate</DropdownItem>}
         </DropdownContent></DropdownMenu>) : null },
   ];
   return (
@@ -110,6 +134,7 @@ export default function TeamPage() {
       </Tabs>
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} roles={roles.data ?? []} />
       <MemberSheet member={sel} onClose={() => setSel(null)} />
+      <DeactivateDialog member={deactivating} members={members.data ?? []} onClose={() => setDeactivating(null)} />
     </>
   );
 }

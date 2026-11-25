@@ -38,23 +38,43 @@ async function assertRefs(ctx: Ctx, input: { sourceId?: string | null; priorityI
   }
 }
 
-export async function validateCustomFields(ctx: Ctx, values: Record<string, unknown> | undefined, partial = false) {
-  const defs = await db().customFieldDef.findMany({ where: { organizationId: ctx.orgId, isActive: true } });
+type CustomDef = { key: string; label: string; type: string; options: string[]; required: boolean };
+/**
+ * Validates and normalises custom field values against the workspace's active field definitions. Nothing is silently cut or
+ * coerced: wrong types, out-of-range dates, unknown dropdown options and over-long text are rejected with a field-level message.
+ * Pass `defs` when validating many rows (imports) to avoid one query per row.
+ */
+export async function validateCustomFields(ctx: Ctx, values: Record<string, unknown> | undefined, partial = false, defs?: CustomDef[]) {
+  const fields = defs ?? await db().customFieldDef.findMany({ where: { organizationId: ctx.orgId, isActive: true } });
   const out: Record<string, string | number | boolean | null> = {};
   const errors: Record<string, string> = {};
-  for (const d of defs) {
+  for (const d of fields) {
     const raw = values?.[d.key];
     const empty = raw === undefined || raw === null || raw === '';
+    const err = (m: string) => { errors[`customFields.${d.key}`] = m; };
     if (empty) {
-      if (d.required && !partial) errors[`customFields.${d.key}`] = `${d.label} is required`;
+      if (d.required && !partial) err(`${d.label} is required`);
       if (values && d.key in values) out[d.key] = null;
       continue;
     }
-    if (d.type === 'NUMBER') { const n = Number(raw); if (Number.isNaN(n)) errors[`customFields.${d.key}`] = `${d.label} must be a number`; else out[d.key] = n; }
-    else if (d.type === 'BOOLEAN') out[d.key] = raw === true || raw === 'true' || raw === 'yes';
-    else if (d.type === 'DATE') { if (Number.isNaN(Date.parse(String(raw)))) errors[`customFields.${d.key}`] = `${d.label} must be a date`; else out[d.key] = String(raw).slice(0, 10); }
-    else if (d.type === 'SELECT') { if (!d.options.includes(String(raw))) errors[`customFields.${d.key}`] = `${d.label}: choose one of ${d.options.join(', ')}`; else out[d.key] = String(raw); }
-    else out[d.key] = String(raw).slice(0, 500);
+    if (d.type === 'NUMBER') {
+      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/,/g, '').trim());
+      if (!Number.isFinite(n) || String(raw).trim() === '') err(`${d.label} must be a number`); else if (Math.abs(n) > 1e15) err(`${d.label} is out of range`); else out[d.key] = n;
+    } else if (d.type === 'BOOLEAN') {
+      const v = String(raw).trim().toLowerCase();
+      if (['true', 'yes', 'y', '1'].includes(v)) out[d.key] = true; else if (['false', 'no', 'n', '0'].includes(v)) out[d.key] = false; else err(`${d.label} must be yes or no`);
+    } else if (d.type === 'DATE') {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(raw).trim());
+      const dt = m ? new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!)) : null;
+      if (!m || !dt || dt.getUTCFullYear() !== +m[1]! || dt.getUTCMonth() !== +m[2]! - 1 || dt.getUTCDate() !== +m[3]! || +m[1]! < 1900 || +m[1]! > 2200) err(`${d.label} must be a valid date (YYYY-MM-DD)`); else out[d.key] = `${m[1]}-${m[2]}-${m[3]}`;
+    } else if (d.type === 'SELECT') {
+      const v = String(raw).trim();
+      const match = d.options.find((o) => o.toLowerCase() === v.toLowerCase());
+      if (!match) err(`${d.label}: choose one of ${d.options.join(', ')}`); else out[d.key] = match;
+    } else {
+      const v = String(raw).trim();
+      if (v.length > 500) err(`${d.label} is too long (${v.length} of 500 characters)`); else out[d.key] = v;
+    }
   }
   if (Object.keys(errors).length) throw badRequest('Some custom fields are invalid', { fields: errors }, 'VALIDATION_ERROR');
   return out;

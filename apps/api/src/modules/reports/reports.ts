@@ -21,6 +21,9 @@ export const REPORTS = [
   { key: 'salesperson', title: 'Salesperson Performance', description: 'Leads, contact, deals won and revenue per team member.' },
   { key: 'lead-aging', title: 'Lead Aging', description: 'How long open leads have been waiting.' },
   { key: 'response-time', title: 'Response Time', description: 'Time from lead creation to first recorded contact attempt.' },
+  { key: 'lead-status', title: 'Lead Status', description: 'Where the leads created in the period stand today: new, contacted, qualified, converted, lost.' },
+  { key: 'activity', title: 'Activity', description: 'Logged calls, emails, WhatsApp chats, meetings and notes per team member (manually recorded interactions).' },
+  { key: 'task-performance', title: 'Task Performance', description: 'Tasks due in the period: completed, completed on time, overdue and still open, per assignee.' },
 ] as const;
 export type ReportKey = (typeof REPORTS)[number]['key'];
 
@@ -60,15 +63,15 @@ export async function runReport(key: ReportKey, ctx: Ctx, f: FilterCtx): Promise
     case 'assignment': {
       const rows = await db().$queryRaw<Row[]>`
         WITH mem AS (SELECT m.user_id, u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ${ctx.orgId}::uuid AND m.status = 'ACTIVE' ${f.assigneeId ? Prisma.sql`AND m.user_id = ${f.assigneeId}::uuid` : Prisma.empty}),
-        got AS (SELECT to_user_id AS uid, count(*)::int AS received, count(*) FILTER (WHERE method = 'ROUND_ROBIN')::int AS rr, count(*) FILTER (WHERE method = 'RULE')::int AS by_rule, count(*) FILTER (WHERE method IN ('MANUAL','BULK'))::int AS manual FROM lead_assignments WHERE organization_id = ${ctx.orgId}::uuid AND to_user_id IS NOT NULL AND created_at >= ${from} AND created_at < ${to} GROUP BY 1),
+        got AS (SELECT to_user_id AS uid, count(*)::int AS received, count(*) FILTER (WHERE method = 'ROUND_ROBIN')::int AS rr, count(*) FILTER (WHERE method = 'RULE')::int AS by_rule, count(*) FILTER (WHERE method IN ('MANUAL','BULK'))::int AS manual, count(*) FILTER (WHERE method = 'AUTOMATION')::int AS automation, count(*) FILTER (WHERE method NOT IN ('MANUAL','BULK','ROUND_ROBIN','RULE','AUTOMATION'))::int AS other FROM lead_assignments WHERE organization_id = ${ctx.orgId}::uuid AND to_user_id IS NOT NULL AND created_at >= ${from} AND created_at < ${to} GROUP BY 1),
         lost AS (SELECT from_user_id AS uid, count(*)::int AS reassigned_away FROM lead_assignments WHERE organization_id = ${ctx.orgId}::uuid AND from_user_id IS NOT NULL AND (to_user_id IS DISTINCT FROM from_user_id) AND created_at >= ${from} AND created_at < ${to} GROUP BY 1),
         cur AS (SELECT l.assigned_to_id AS uid, count(*)::int AS open_leads FROM leads l WHERE ${f.leadAnyWhere} AND l.status IN ('NEW','CONTACTED','QUALIFIED') GROUP BY 1)
-        SELECT mem.name AS member, COALESCE(got.received, 0) AS received, COALESCE(got.manual, 0) AS manual, COALESCE(got.rr, 0) AS round_robin, COALESCE(got.by_rule, 0) AS by_rule, COALESCE(lost.reassigned_away, 0) AS reassigned_away, COALESCE(cur.open_leads, 0) AS open_leads
+        SELECT mem.name AS member, COALESCE(got.received, 0) AS received, COALESCE(got.manual, 0) AS manual, COALESCE(got.automation, 0) AS automation, COALESCE(got.other, 0) AS other, COALESCE(got.rr, 0) AS round_robin, COALESCE(got.by_rule, 0) AS by_rule, COALESCE(lost.reassigned_away, 0) AS reassigned_away, COALESCE(cur.open_leads, 0) AS open_leads
         FROM mem LEFT JOIN got ON got.uid = mem.user_id LEFT JOIN lost ON lost.uid = mem.user_id LEFT JOIN cur ON cur.uid = mem.user_id ORDER BY COALESCE(got.received, 0) DESC`;
       const [u] = await db().$queryRaw<Array<{ unassigned: number; avg_h: number | null }>>`
         SELECT (SELECT count(*)::int FROM leads l WHERE ${f.leadAnyWhere} AND l.assigned_to_id IS NULL AND l.status IN ('NEW','CONTACTED','QUALIFIED')) AS unassigned,
                (SELECT avg(EXTRACT(EPOCH FROM (l.assigned_at - l.created_at)) / 3600)::float FROM leads l WHERE ${f.leadWhere} AND l.assigned_at IS NOT NULL) AS avg_h`;
-      return { ...base, columns: [{ key: 'member', label: 'Team member', type: 'text' }, { key: 'received', label: 'Leads received', type: 'number' }, { key: 'manual', label: 'Manual', type: 'number' }, { key: 'round_robin', label: 'Round-robin', type: 'number' }, { key: 'by_rule', label: 'Rule-based', type: 'number' }, { key: 'reassigned_away', label: 'Reassigned away', type: 'number' }, { key: 'open_leads', label: 'Open leads now', type: 'number' }], rows,
+      return { ...base, columns: [{ key: 'member', label: 'Team member', type: 'text' }, { key: 'received', label: 'Leads received', type: 'number' }, { key: 'manual', label: 'Manual', type: 'number' }, { key: 'automation', label: 'Automation', type: 'number' }, { key: 'other', label: 'Import / transfer / merge', type: 'number' }, { key: 'round_robin', label: 'Round-robin', type: 'number' }, { key: 'by_rule', label: 'Rule-based', type: 'number' }, { key: 'reassigned_away', label: 'Reassigned away', type: 'number' }, { key: 'open_leads', label: 'Open leads now', type: 'number' }], rows,
         summary: [{ label: 'Unassigned open leads', value: u?.unassigned ?? 0, type: 'number' }, { label: 'Avg time to assign (h)', value: rnd(u?.avg_h) ?? 0, type: 'hours' }, { label: 'Assignments in range', value: rows.reduce((a, r) => a + n(r.received), 0), type: 'number' }] };
     }
     case 'contact-performance': {
@@ -152,6 +155,48 @@ export async function runReport(key: ReportKey, ctx: Ctx, f: FilterCtx): Promise
       const out = order.map((b) => ({ bucket: b, ...(rows.find((r) => r.bucket === b) ?? { leads: 0, new_leads: 0, contacted: 0, qualified: 0, unassigned: 0 }) })) as Row[];
       return { ...base, columns: [{ key: 'bucket', label: 'Age since creation', type: 'text' }, { key: 'leads', label: 'Open leads', type: 'number' }, { key: 'new_leads', label: 'New', type: 'number' }, { key: 'contacted', label: 'Contacted', type: 'number' }, { key: 'qualified', label: 'Qualified', type: 'number' }, { key: 'unassigned', label: 'Unassigned', type: 'number' }], rows: out,
         summary: [{ label: 'Open leads', value: out.reduce((a, r) => a + n(r.leads), 0), type: 'number' }, { label: 'Older than 14 days', value: n(out[4]?.leads) + n(out[5]?.leads), type: 'number' }] };
+    }
+    case 'lead-status': {
+      const rows = await db().$queryRaw<Row[]>`
+        SELECT l.status::text AS status, count(*)::int AS leads, count(*) FILTER (WHERE l.assigned_to_id IS NULL)::int AS unassigned,
+               count(*) FILTER (WHERE l.first_contacted_at IS NOT NULL)::int AS contacted,
+               avg(EXTRACT(EPOCH FROM (${f.now}::timestamptz - l.created_at)) / 86400)::float AS avg_age_days
+        FROM leads l WHERE ${f.leadWhere} GROUP BY l.status`;
+      const order = ['NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'LOST'];
+      const total = rows.reduce((a, r) => a + n(r.leads), 0);
+      const out = order.map((st): Row => { const r = rows.find((x) => x.status === st); return { status: st, leads: n(r?.leads), share: pct(n(r?.leads), total), unassigned: n(r?.unassigned), contacted: n(r?.contacted), avg_age_days: rnd(r?.avg_age_days) ?? 0 }; });
+      const count = (st: string) => n(out.find((r) => r.status === st)?.leads);
+      return { ...base, columns: [{ key: 'status', label: 'Status', type: 'text' }, { key: 'leads', label: 'Leads', type: 'number' }, { key: 'share', label: 'Share', type: 'percent' }, { key: 'unassigned', label: 'Unassigned', type: 'number' }, { key: 'contacted', label: 'Contacted', type: 'number' }, { key: 'avg_age_days', label: 'Avg age (days)', type: 'number' }], rows: out,
+        summary: [{ label: 'Leads created in range', value: total, type: 'number' }, { label: 'Still open', value: count('NEW') + count('CONTACTED') + count('QUALIFIED'), type: 'number' }, { label: 'Converted', value: count('CONVERTED'), type: 'number' }, { label: 'Lost', value: count('LOST'), type: 'number' }] };
+    }
+    case 'activity': {
+      const viewAll = ctx.can('activity.view_all');
+      const who = f.assigneeId ?? (viewAll ? null : ctx.userId);
+      const rows = await db().$queryRaw<Row[]>`
+        WITH mem AS (SELECT m.user_id, u.name FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ${ctx.orgId}::uuid AND m.status = 'ACTIVE' ${who ? Prisma.sql`AND m.user_id = ${who}::uuid` : Prisma.empty}),
+        act AS (SELECT actor_id AS uid, count(*) FILTER (WHERE type = 'CALL')::int AS calls, count(*) FILTER (WHERE type = 'EMAIL')::int AS emails, count(*) FILTER (WHERE type = 'WHATSAPP')::int AS whatsapp,
+                       count(*) FILTER (WHERE type = 'MEETING')::int AS meetings, count(*) FILTER (WHERE type = 'NOTE')::int AS notes, count(DISTINCT lead_id)::int AS leads_touched
+                FROM activities WHERE organization_id = ${ctx.orgId}::uuid AND type IN ('CALL','EMAIL','WHATSAPP','MEETING','NOTE') AND occurred_at >= ${from} AND occurred_at < ${to} GROUP BY 1)
+        SELECT mem.name AS member, COALESCE(act.calls, 0) AS calls, COALESCE(act.emails, 0) AS emails, COALESCE(act.whatsapp, 0) AS whatsapp, COALESCE(act.meetings, 0) AS meetings, COALESCE(act.notes, 0) AS notes,
+               (COALESCE(act.calls, 0) + COALESCE(act.emails, 0) + COALESCE(act.whatsapp, 0) + COALESCE(act.meetings, 0) + COALESCE(act.notes, 0))::int AS total, COALESCE(act.leads_touched, 0) AS leads_touched
+        FROM mem LEFT JOIN act ON act.uid = mem.user_id ORDER BY 7 DESC, mem.name`;
+      const t = (k: string) => rows.reduce((a, r) => a + n(r[k]), 0);
+      return { ...base, columns: [{ key: 'member', label: 'Team member', type: 'text' }, { key: 'calls', label: 'Calls', type: 'number' }, { key: 'emails', label: 'Emails', type: 'number' }, { key: 'whatsapp', label: 'WhatsApp', type: 'number' }, { key: 'meetings', label: 'Meetings', type: 'number' }, { key: 'notes', label: 'Notes', type: 'number' }, { key: 'total', label: 'Total', type: 'number' }, { key: 'leads_touched', label: 'Leads touched', type: 'number' }], rows,
+        summary: [{ label: 'Logged activities', value: t('total'), type: 'number' }, { label: 'Calls', value: t('calls'), type: 'number' }, { label: 'Emails', value: t('emails'), type: 'number' }, { label: 'WhatsApp', value: t('whatsapp'), type: 'number' }, { label: 'Meetings', value: t('meetings'), type: 'number' }] };
+    }
+    case 'task-performance': {
+      const scope = ctx.can('tasks.view_all') ? Prisma.empty : Prisma.sql`AND t.assigned_to_id = ${ctx.userId}::uuid`;
+      const rows = await db().$queryRaw<Row[]>`
+        SELECT COALESCE(u.name, 'Unassigned') AS member, count(*) FILTER (WHERE t.status <> 'CANCELED')::int AS due,
+               count(*) FILTER (WHERE t.status = 'DONE')::int AS completed, count(*) FILTER (WHERE t.status = 'DONE' AND t.completed_at <= t.due_at)::int AS on_time,
+               count(*) FILTER (WHERE t.status IN ('TODO','IN_PROGRESS') AND t.due_at < ${f.now})::int AS overdue, count(*) FILTER (WHERE t.status IN ('TODO','IN_PROGRESS') AND t.due_at >= ${f.now})::int AS upcoming,
+               count(*) FILTER (WHERE t.priority = 'HIGH' AND t.status IN ('TODO','IN_PROGRESS'))::int AS high_open
+        FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to_id WHERE t.organization_id = ${ctx.orgId}::uuid AND t.due_at >= ${from} AND t.due_at < ${to}
+          ${f.assigneeId ? Prisma.sql`AND t.assigned_to_id = ${f.assigneeId}::uuid` : Prisma.empty} ${scope} GROUP BY u.name ORDER BY count(*) DESC`;
+      const out = rows.map((r): Row => ({ ...r, completion_rate: pct(n(r.completed), n(r.due) - n(r.upcoming)), on_time_rate: pct(n(r.on_time), n(r.completed)) }));
+      const t = (k: string) => out.reduce((a, r) => a + n(r[k]), 0);
+      return { ...base, columns: [{ key: 'member', label: 'Assignee', type: 'text' }, { key: 'due', label: 'Tasks due (in range)', type: 'number' }, { key: 'completed', label: 'Completed', type: 'number' }, { key: 'on_time', label: 'Completed on time', type: 'number' }, { key: 'overdue', label: 'Overdue now', type: 'number' }, { key: 'upcoming', label: 'Upcoming', type: 'number' }, { key: 'high_open', label: 'High priority open', type: 'number' }, { key: 'completion_rate', label: 'Completion rate', type: 'percent' }, { key: 'on_time_rate', label: 'On-time rate', type: 'percent' }], rows: out,
+        summary: [{ label: 'Tasks due', value: t('due'), type: 'number' }, { label: 'Completed', value: t('completed'), type: 'number' }, { label: 'Overdue now', value: t('overdue'), type: 'number' }, { label: 'Completion rate', value: pct(t('completed'), t('due') - t('upcoming')), type: 'percent' }] };
     }
     case 'response-time': {
       const rows = await db().$queryRaw<Row[]>`

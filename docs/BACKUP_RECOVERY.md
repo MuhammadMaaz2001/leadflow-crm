@@ -8,7 +8,7 @@ Run a restore drill in a staging environment before launch and after every major
 
 | Component | Contents | Loss impact | Backup |
 |---|---|---|---|
-| **PostgreSQL** | everything: workspaces, leads, history, billing, audit logs, sessions, email outbox, logos (when `STORAGE_PROVIDER=db`) | total | **required** — continuous (PITR) + daily logical dump |
+| **PostgreSQL** | everything: workspaces, leads, history, billing (**payments, receipts, invoices, subscription history — the only record of manually confirmed payments**), saved views, audit logs, sessions, email outbox, logos (when `STORAGE_PROVIDER=db`) | total | **required** — continuous (PITR) + daily logical dump |
 | **Object storage (S3)** | workspace logos (`logos/<org>/<hash>.<ext>`) | cosmetic: the logo disappears, re-upload fixes it | bucket versioning (+ optional cross-region replication) |
 | **Redis** | rate-limit counters, scheduler/lock keys, BullMQ queue, worker heartbeats | **recoverable by design** — see below | persistence optional (`appendonly yes` recommended) |
 | Next.js / API containers | none (stateless) | none | rebuild from git tag |
@@ -64,3 +64,6 @@ Leads are soft-deleted (`archived_at`) and merges are reversible only from histo
 * `db:verify` passes on the migrated schema and fails on a table without RLS (tested).
 * Redis-loss recovery paths: tested (see above).
 * **Not tested:** `pg_dump`/`pg_restore` round trip of a populated database on a managed provider, PITR, S3 versioning restore, cross-region failover.
+
+## Manual-billing records
+Because payments are confirmed by hand and there is no payment processor to re-query, the `payments`, `invoices`, `subscription_events` and `audit_logs` tables are the **only** record of what a customer has paid. After any restore: run `npm run db:verify`, then compare the latest `payments` rows with the finance ledger (bank statement/cash book) for the period between the backup and the incident, and re-enter any confirmation that was lost (each needs a new reference or idempotency key). Never recreate payments by editing rows directly — the tenant role cannot, and the platform role should use the billing screen so the receipt, invoice and history stay consistent.

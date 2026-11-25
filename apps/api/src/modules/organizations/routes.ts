@@ -1,7 +1,6 @@
 import { createOrgSchema, onboardingSchema, orgProfileSchema, slugify, SYSTEM_ROLES } from '@leadflow/shared';
 import { z } from 'zod';
 import { db, setOrg } from '../../db';
-import { config } from '../../config';
 import { uuid, randomToken } from '../../lib/crypto';
 import { audit } from '../../lib/audit';
 import { created, defineRoutes, RawReply } from '../../http';
@@ -36,8 +35,6 @@ orgs.get('/current', { allowSuspended: true, summary: 'Current workspace details
     role: { id: ctx.roleId, key: ctx.roleKey }, permissions: ctx.permissions,
     subscription: sub && { status: sub.status, planCode: sub.plan.code, planName: sub.plan.name, features: sub.plan.features, trialEndsAt: sub.trialEndsAt, currentPeriodEnd: sub.currentPeriodEnd, graceEndsAt: sub.graceEndsAt, interval: sub.interval },
     usage,
-    // In production invoices are settled by the platform (or a payment provider); tenants cannot mark their own invoices paid.
-    billing: { selfServiceManualPayment: config.devTools },
   };
 });
 

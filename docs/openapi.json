@@ -1348,6 +1348,19 @@
                   },
                   "isAssignable": {
                     "type": "boolean"
+                  },
+                  "transferTo": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "string",
+                        "const": "UNASSIGN"
+                      }
+                    ]
                   }
                 }
               }
@@ -2772,7 +2785,7 @@
           "Workspace settings"
         ],
         "summary": "Update tag",
-        "description": "Requires permission: leads.update. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
         "security": [
           {
             "sessionCookie": []
@@ -2851,7 +2864,7 @@
           "Workspace settings"
         ],
         "summary": "Delete or deactivate tag",
-        "description": "Requires permission: leads.update. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
         "security": [
           {
             "sessionCookie": []
@@ -3038,7 +3051,7 @@
         "tags": [
           "Workspace settings"
         ],
-        "summary": "Update a custom field",
+        "summary": "Update a custom field (the type and key never change; options in use cannot be removed)",
         "description": "Requires permission: settings.manage. Requires plan feature: custom_fields. Tenant-scoped: send the workspace in the X-Org-Id header.",
         "security": [
           {
@@ -4843,6 +4856,245 @@
           "Leads"
         ],
         "summary": "Follow-up history for a lead",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/lead-views": {
+      "get": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Saved lead views: your own and the ones shared with the workspace",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Save the current lead filters as a view (sharing needs the permission to assign leads)",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "query": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 1500
+                  },
+                  "isShared": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/lead-views/{id}": {
+      "patch": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Rename a view or change whether it is shared",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "query": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 1500
+                  },
+                  "isShared": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Leads"
+        ],
+        "summary": "Delete a view (its owner, or anyone who can manage workspace settings)",
         "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
         "security": [
           {
@@ -8186,6 +8438,83 @@
                             "type",
                             "priorityId"
                           ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "ASSIGN_LEAD"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "USER",
+                                "ROUND_ROBIN"
+                              ]
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "onlyIfUnassigned": {
+                              "default": true,
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mode"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "CREATE_FOLLOWUP"
+                            },
+                            "followUpType": {
+                              "default": "CALL",
+                              "type": "string",
+                              "enum": [
+                                "CALL",
+                                "WHATSAPP",
+                                "EMAIL",
+                                "MEETING",
+                                "VIDEO_CALL",
+                                "OTHER"
+                              ]
+                            },
+                            "assignee": {
+                              "default": "OWNER",
+                              "type": "string",
+                              "enum": [
+                                "OWNER",
+                                "MANAGERS",
+                                "USER"
+                              ]
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "dueInHours": {
+                              "default": 24,
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 720
+                            },
+                            "notes": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ]
                         }
                       ]
                     }
@@ -8420,6 +8749,83 @@
                           "required": [
                             "type",
                             "priorityId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "ASSIGN_LEAD"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "USER",
+                                "ROUND_ROBIN"
+                              ]
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "onlyIfUnassigned": {
+                              "default": true,
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "mode"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "CREATE_FOLLOWUP"
+                            },
+                            "followUpType": {
+                              "default": "CALL",
+                              "type": "string",
+                              "enum": [
+                                "CALL",
+                                "WHATSAPP",
+                                "EMAIL",
+                                "MEETING",
+                                "VIDEO_CALL",
+                                "OTHER"
+                              ]
+                            },
+                            "assignee": {
+                              "default": "OWNER",
+                              "type": "string",
+                              "enum": [
+                                "OWNER",
+                                "MANAGERS",
+                                "USER"
+                              ]
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "dueInHours": {
+                              "default": 24,
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 720
+                            },
+                            "notes": {
+                              "type": "string",
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "type"
                           ]
                         }
                       ]
@@ -9309,82 +9715,6 @@
             }
           }
         ],
-        "responses": {
-          "200": {
-            "description": "OK — { data, meta? }"
-          },
-          "400": {
-            "description": "Validation error"
-          },
-          "401": {
-            "description": "Unauthenticated"
-          },
-          "402": {
-            "description": "Plan limit or feature restriction"
-          },
-          "403": {
-            "description": "Forbidden / not a member / missing permission"
-          }
-        }
-      }
-    },
-    "/api/billing/invoices/{id}/record-payment": {
-      "post": {
-        "tags": [
-          "Billing"
-        ],
-        "summary": "DEVELOPMENT / MANUAL: record that an invoice was paid outside the system",
-        "description": "Requires permission: billing.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "X-Org-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "properties": {
-                  "reference": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 120
-                  },
-                  "note": {
-                    "type": "string",
-                    "maxLength": 300
-                  }
-                },
-                "required": [
-                  "reference"
-                ]
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "OK — { data, meta? }"
@@ -10526,7 +10856,7 @@
         "tags": [
           "Platform administration"
         ],
-        "summary": "Manual subscription adjustment (audited)",
+        "summary": "Administrative override of plan / status (no payment, no expiry change — use /extend or /payments for those). Audited.",
         "description": "Platform administrators only.",
         "security": [
           {
@@ -10572,20 +10902,509 @@
                       "CANCELED"
                     ]
                   },
-                  "extendDays": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 365
-                  },
                   "note": {
                     "type": "string",
+                    "minLength": 5,
                     "maxLength": 300
+                  }
+                },
+                "required": [
+                  "note"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/organizations/{id}/billing": {
+      "get": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "Workspace billing: plan, period, invoices, payments/receipts and the full subscription history",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/subscriptions/{orgId}/payments/preview": {
+      "post": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "Preview the previous and new expiry of a payment confirmation (writes nothing)",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "invoiceId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "planCode": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "amount": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "extension": {
+                    "type": "object",
+                    "properties": {
+                      "months": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 36
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1100
+                      }
+                    }
+                  },
+                  "receivedAt": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 40
+                  },
+                  "allowAmountMismatch": {
+                    "type": "boolean"
+                  },
+                  "internalNote": {
+                    "type": "string",
+                    "maxLength": 1000
                   }
                 }
               }
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/subscriptions/{orgId}/payments": {
+      "post": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "MANUAL: confirm a payment received outside the system; atomically marks/creates the invoice, issues a receipt and extends the subscription",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "invoiceId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "planCode": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "amount": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "BANK_TRANSFER",
+                      "CASH",
+                      "CARD_OFFLINE",
+                      "CHEQUE",
+                      "MOBILE_MONEY",
+                      "OTHER"
+                    ]
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "receivedAt": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 40
+                  },
+                  "extension": {
+                    "type": "object",
+                    "properties": {
+                      "months": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 36
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1100
+                      }
+                    }
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "internalNote": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "allowAmountMismatch": {
+                    "type": "boolean"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 80
+                  }
+                },
+                "required": [
+                  "method",
+                  "reference"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/subscriptions/{orgId}/extend": {
+      "post": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "Extend a subscription WITHOUT a payment (goodwill / correction). Requires a reason; audited.",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "extension": {
+                    "type": "object",
+                    "properties": {
+                      "months": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 36
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1100
+                      }
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "extension",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/payments/{id}/reverse": {
+      "post": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "Reverse the most recent payment of a workspace (mistaken entry): restores the previous expiry",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/platform/payments": {
+      "get": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "All confirmed payments",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CONFIRMED",
+                "REVERSED"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK — { data, meta? }"
@@ -10681,7 +11500,7 @@
         "tags": [
           "Platform administration"
         ],
-        "summary": "MANUAL: record a payment received outside the system",
+        "summary": "MANUAL: confirm a payment received outside the system for this invoice (extends the subscription)",
         "description": "Platform administrators only.",
         "security": [
           {
@@ -10707,17 +11526,71 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "properties": {
+                  "amount": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "BANK_TRANSFER",
+                      "CASH",
+                      "CARD_OFFLINE",
+                      "CHEQUE",
+                      "MOBILE_MONEY",
+                      "OTHER"
+                    ]
+                  },
                   "reference": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 120
                   },
+                  "receivedAt": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 40
+                  },
+                  "extension": {
+                    "type": "object",
+                    "properties": {
+                      "months": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 36
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1100
+                      }
+                    }
+                  },
                   "note": {
                     "type": "string",
                     "maxLength": 300
+                  },
+                  "internalNote": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "allowAmountMismatch": {
+                    "type": "boolean"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 80
                   }
                 },
                 "required": [
+                  "method",
                   "reference"
                 ]
               }

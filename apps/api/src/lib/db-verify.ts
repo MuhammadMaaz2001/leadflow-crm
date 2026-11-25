@@ -11,6 +11,8 @@ export interface VerifyOptions { appRole: string; platformRole: string }
 
 const PRIVATE_TABLES = ['leads', 'opportunities', 'follow_ups', 'tasks', 'activities', 'notifications', 'outbound_emails', 'lead_assignments'];
 const APPEND_ONLY = ['activities', 'audit_logs'];
+/** Written only by the platform role (billing records): the tenant application role must have no write privilege at all. */
+const READ_ONLY_FOR_APP = ['payments'];
 
 export async function verifyDatabaseSecurity(db: Queryable, o: VerifyOptions): Promise<string[]> {
   const problems: string[] = [];
@@ -42,6 +44,7 @@ export async function verifyDatabaseSecurity(db: Queryable, o: VerifyOptions): P
   for (const t of APPEND_ONLY) {
     if (app && (await priv(o.appRole, t, 'DELETE'))) problems.push(`role ${o.appRole} can DELETE from append-only table ${t}`);
   }
+  for (const t of READ_ONLY_FOR_APP) for (const p of ['INSERT', 'UPDATE', 'DELETE']) if (app && (await priv(o.appRole, t, p))) problems.push(`role ${o.appRole} can ${p} on billing table ${t}`);
   const schemaCreate = (await db.$queryRawUnsafe<Array<{ ok: boolean }>>(`SELECT has_schema_privilege($1, 'public', 'CREATE') AS ok`, o.appRole))[0]?.ok;
   if (app && schemaCreate) problems.push(`role ${o.appRole} can CREATE objects in schema public`);
   return problems;

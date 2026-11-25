@@ -3,11 +3,10 @@ import * as React from 'react';
 import { AlertTriangle, Check, CreditCard, Download, FileText, Info, Lock, ReceiptText } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { errMsg, useAct, useOrg, useT } from '@/lib/session';
+import { useAct, useOrg, useT } from '@/lib/session';
 import { fmtDate, fmtDateTime, money, num, titleCase } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Field, FormError, Input } from '@/components/ui/form';
 import { Badge, Card, CardHeader, EmptyState, PageHeader, Skeleton } from '@/components/ui/data';
 import { Dialog, useConfirm } from '@/components/ui/overlay';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
@@ -19,7 +18,9 @@ interface Billing {
   usage: { leads: number; seats: number; pendingInvites: number; opportunities: number; maxLeads: number; maxSeats: number }; graceDays: number;
   invoices: Invoice[]; events: Array<{ id: string; type: string; fromPlanCode: string | null; toPlanCode: string | null; status: string | null; note: string | null; createdAt: string }>;
   plans: Plan[]; features: Array<{ key: string; label: string }>; paymentNote: string;
+  payments: Array<{ id: string; receiptNumber: string; status: string; amount: number; currency: string; method: string; reference: string; receivedAt: string; note: string | null; previousExpiry: string | null; newExpiry: string; extension: string }>;
 }
+const METHOD: Record<string, string> = { BANK_TRANSFER: 'Bank transfer', CASH: 'Cash', CARD_OFFLINE: 'Card (offline)', CHEQUE: 'Cheque', MOBILE_MONEY: 'Mobile money', OTHER: 'Other' };
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'info' | 'neutral'> = { ACTIVE: 'ok', TRIALING: 'info', PAST_DUE: 'warn', EXPIRED: 'bad', CANCELED: 'bad', PAID: 'ok', OPEN: 'warn', FAILED: 'bad', VOID: 'neutral', DRAFT: 'neutral' };
 
 function Meter({ label, used, max, extra }: { label: string; used: number; max: number; extra?: string }) {
@@ -27,27 +28,20 @@ function Meter({ label, used, max, extra }: { label: string; used: number; max: 
   return <div><div className="mb-1 flex items-baseline justify-between text-[13px]"><span className="font-medium">{label}</span><span className="tnum text-ink-2"><b className="text-ink">{num(used)}</b> / {num(max)}{extra}</span></div><div className="h-2 overflow-hidden rounded-full bg-subtle" role="progressbar" aria-valuenow={p} aria-valuemin={0} aria-valuemax={100} aria-label={label}><div className={cn('h-full rounded-full transition-all', p >= 100 ? 'bg-bad' : p >= 80 ? 'bg-warn' : 'bg-accent')} style={{ width: `${p}%` }} /></div></div>;
 }
 
-function InvoiceDialog({ id, onClose, canPay }: { id: string | null; onClose: () => void; canPay: boolean }) {
+function InvoiceDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
   const q = useT(['invoice', id], () => api.get<Invoice>(`/billing/invoices/${id}`), { enabled: !!id });
-  const [ref, setRef] = React.useState('');
-  const [error, setError] = React.useState<string | null>(null);
-  React.useEffect(() => { setRef(''); setError(null); }, [id]);
-  const pay = useAct(() => api.post(`/billing/invoices/${id}/record-payment`, { reference: ref }), { success: 'Payment recorded — plan updated', silent: true, onSuccess: onClose, onError: (e) => setError(errMsg(e)) });
   const i = q.data;
   return (
     <Dialog open={!!id} onOpenChange={(o) => !o && onClose()} title={i ? `Invoice ${i.number}` : 'Invoice'} description={i?.description}
-      footer={i && canPay && (i.status === 'OPEN' || i.status === 'FAILED') ? <><Button onClick={onClose}>Close</Button><Button variant="primary" loading={pay.isPending} disabled={!ref.trim()} onClick={() => pay.mutate()}>Record manual payment</Button></> : <Button onClick={onClose}>Close</Button>}>
+      footer={<Button onClick={onClose}>Close</Button>}>
       {!i ? <Skeleton className="h-40" /> : (
         <div className="space-y-4">
           <div className="flex items-start justify-between"><div><p className="text-xs text-ink-3">Bill to</p><p className="text-[13px] font-medium">{i.billTo?.name}</p>{i.billTo?.email && <p className="text-xs text-ink-2">{i.billTo.email}</p>}</div><div className="text-right"><Badge tone={STATUS_TONE[i.status]}>{titleCase(i.status)}</Badge><p className="tnum mt-1 text-2xl font-semibold">{money(i.amount, i.currency)}</p></div></div>
           <dl className="divide-y divide-line rounded-lg border border-line px-3 text-[13px]">
-            {[['Issued', fmtDate(i.issuedAt)], ['Due', fmtDate(i.dueAt)], ['Period', i.periodStart ? `${fmtDate(i.periodStart)} – ${fmtDate(i.periodEnd)}` : '—'], ...(i.paidAt ? [['Paid', fmtDateTime(i.paidAt)], ['Method', i.paymentMethod === 'MANUAL_DEV' ? 'Manually recorded (development)' : i.paymentMethod === 'MANUAL_PLATFORM' ? 'Manually recorded by platform admin' : i.paymentMethod ?? '—'], ['Reference', i.paymentReference ?? '—']] : []), ...(i.failureReason ? [['Failure', i.failureReason]] : [])].map(([l, v]) => <div key={l} className="flex justify-between py-2"><dt className="text-ink-3">{l}</dt><dd className="text-right">{v}</dd></div>)}
+            {[['Issued', fmtDate(i.issuedAt)], ['Due', fmtDate(i.dueAt)], ['Period', i.periodStart ? `${fmtDate(i.periodStart)} – ${fmtDate(i.periodEnd)}` : '—'], ...(i.paidAt ? [['Paid', fmtDateTime(i.paidAt)], ['Method', i.paymentMethod ? (METHOD[i.paymentMethod] ?? i.paymentMethod) : '—'], ['Reference', i.paymentReference ?? '—']] : []), ...(i.failureReason ? [['Failure', i.failureReason]] : [])].map(([l, v]) => <div key={l} className="flex justify-between py-2"><dt className="text-ink-3">{l}</dt><dd className="text-right">{v}</dd></div>)}
           </dl>
-          {!canPay && (i.status === 'OPEN' || i.status === 'FAILED') && (
+          {(i.status === 'OPEN' || i.status === 'FAILED') && (
             <div className="rounded-lg border border-line bg-subtle p-3"><p className="flex items-center gap-1.5 text-xs font-semibold"><Info className="size-3.5" />Awaiting payment</p><p className="mt-1 text-xs text-ink-2">Online card payment is not available yet. Pay this invoice using the instructions from LeadFlow billing; the plan is activated as soon as the payment is confirmed. You do not need to do anything else in the app.</p></div>
-          )}
-          {canPay && (i.status === 'OPEN' || i.status === 'FAILED') && (
-            <div className="rounded-lg border border-warn/30 bg-warn-soft p-3"><p className="flex items-center gap-1.5 text-xs font-semibold text-warn"><Info className="size-3.5" />Development / manual payment</p><p className="mt-1 text-xs text-warn/90">No payment processor is connected. If this invoice was settled outside LeadFlow (bank transfer, cash…), enter the reference. This is recorded under your name in the audit log.</p><div className="mt-2"><FormError message={error} /><Field label="Payment reference" required><Input aria-label="Payment reference" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. Bank transfer #4821" /></Field></div></div>
           )}
         </div>
       )}
@@ -56,14 +50,14 @@ function InvoiceDialog({ id, onClose, canPay }: { id: string | null; onClose: ()
 }
 
 export default function BillingPage() {
-  const { can, org } = useOrg();
+  const { can } = useOrg();
   const confirm = useConfirm();
   const q = useT(['billing'], () => api.get<Billing>('/billing'));
   const [interval, setIntervalV] = React.useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
   const [invoiceId, setInvoiceId] = React.useState<string | null>(null);
   const manage = can('billing.manage');
   const change = useAct((v: { planCode: string; interval: string }) => api.post<{ applied: string; invoiceId?: string }>('/billing/change-plan', v), {
-    onSuccess: (r) => { if (r.applied === 'pending_payment' && r.invoiceId) { toast.success('Invoice created — record payment to activate the plan'); setInvoiceId(r.invoiceId); } else if (r.applied === 'at_period_end') toast.success('Downgrade scheduled for the end of the billing period'); else toast.success('Plan updated'); },
+    onSuccess: (r) => { if (r.applied === 'pending_payment' && r.invoiceId) { toast.success('Invoice created. Your plan changes once LeadFlow confirms the payment.'); setInvoiceId(r.invoiceId); } else if (r.applied === 'at_period_end') toast.success('Downgrade scheduled for the end of the billing period'); else toast.success('Plan updated'); },
   });
   const cancel = useAct(() => api.post('/billing/cancel'), { success: 'Cancellation scheduled for period end' });
   const reactivate = useAct(() => api.post<{ applied?: string; invoiceId?: string }>('/billing/reactivate'), { success: 'Subscription updated', onSuccess: (r) => r.invoiceId && setInvoiceId(r.invoiceId) });
@@ -86,7 +80,7 @@ export default function BillingPage() {
           <div className="flex flex-wrap items-start justify-between gap-4 px-4 pb-4 pt-2">
             <div><div className="flex items-center gap-2"><h2 className="text-2xl font-semibold">{s.plan.name}</h2><Badge tone={STATUS_TONE[s.status]}>{titleCase(s.status)}</Badge></div>
               <p className="mt-1 text-[13px] text-ink-2">{s.plan.code === 'free' ? 'Free forever' : `${money(s.interval === 'YEARLY' ? s.plan.priceYearly : s.plan.priceMonthly, s.plan.currency)} / ${s.interval === 'YEARLY' ? 'year' : 'month'}`}</p>
-              <p className="mt-2 text-xs text-ink-3">{s.status === 'TRIALING' ? `Trial ends ${fmtDate(s.trialEndsAt)}` : s.plan.code === 'free' ? 'No renewal' : s.cancelAtPeriodEnd ? `Ends ${fmtDate(s.currentPeriodEnd)} (canceled)` : `Renews ${fmtDate(s.currentPeriodEnd)}`}{s.pendingPlan && ` · moving to ${s.pendingPlan.name} on renewal`}</p></div>
+              <p className="mt-2 text-xs text-ink-3">{s.status === 'TRIALING' ? `Trial ends ${fmtDate(s.trialEndsAt)}` : s.plan.code === 'free' ? 'No renewal' : s.cancelAtPeriodEnd ? `Ends ${fmtDate(s.currentPeriodEnd)} (canceled)` : `Active until ${fmtDate(s.currentPeriodEnd)}`}{s.pendingPlan && ` · moving to ${s.pendingPlan.name} on renewal`}</p></div>
             {manage && s.plan.code !== 'free' && <div className="flex gap-2">{(s.cancelAtPeriodEnd || s.pendingPlan) ? <Button onClick={() => reactivate.mutate()}>Keep current plan</Button> : <Button variant="dangerGhost" onClick={async () => { if (await confirm({ title: 'Cancel at period end?', description: 'You keep access until the end of the billing period, then move to the Free plan.', confirmLabel: 'Cancel subscription', destructive: true })) cancel.mutate(); }}>Cancel subscription</Button>}</div>}
           </div>
           <div className="grid gap-5 border-t border-line p-4 sm:grid-cols-2">
@@ -126,7 +120,7 @@ export default function BillingPage() {
       {!manage && <p className="mt-3 text-xs text-ink-3">Only workspace owners can change the plan.</p>}
 
       <Tabs defaultValue="invoices" className="mt-6">
-        <TabsList><TabsTrigger value="invoices">Invoices</TabsTrigger><TabsTrigger value="history">Subscription history</TabsTrigger></TabsList>
+        <TabsList><TabsTrigger value="invoices">Invoices</TabsTrigger><TabsTrigger value="payments">Payments &amp; receipts</TabsTrigger><TabsTrigger value="history">Subscription history</TabsTrigger></TabsList>
         <TabsContent value="invoices" className="pt-4"><Card>
           {!d.invoices.length ? <EmptyState icon={<ReceiptText />} title="No invoices yet" description="Invoices appear when you upgrade or renew." /> : (
             <div className="scroll-thin overflow-x-auto"><table className="w-full min-w-[620px] text-left text-[13px]"><thead><tr className="border-b border-line bg-subtle/60 text-[11px] font-medium uppercase tracking-wide text-ink-3"><th className="px-4 py-2">Invoice</th><th className="px-4 py-2">Description</th><th className="px-4 py-2">Issued</th><th className="px-4 py-2 text-right">Amount</th><th className="px-4 py-2">Status</th><th className="px-4 py-2" /></tr></thead>
@@ -134,9 +128,15 @@ export default function BillingPage() {
           )}
           <p className="border-t border-line px-4 py-3 text-xs text-ink-3"><CreditCard className="mr-1 inline size-3.5" />{d.paymentNote}</p>
         </Card></TabsContent>
+        <TabsContent value="payments" className="pt-4"><Card>
+          {!d.payments.length ? <EmptyState icon={<ReceiptText />} title="No payments yet" description="When LeadFlow confirms a payment you sent, the receipt and the new expiry date appear here." /> : (
+            <div className="scroll-thin overflow-x-auto"><table className="w-full min-w-[640px] text-left text-[13px]"><thead><tr className="border-b border-line bg-subtle/60 text-[11px] font-medium uppercase tracking-wide text-ink-3"><th className="px-4 py-2">Receipt</th><th className="px-4 py-2">Received</th><th className="px-4 py-2 text-right">Amount</th><th className="px-4 py-2">Method · reference</th><th className="px-4 py-2">Subscription until</th></tr></thead>
+              <tbody className="divide-y divide-line">{d.payments.map((p) => <tr key={p.id} className={cn('hover:bg-subtle/50', p.status === 'REVERSED' && 'opacity-60')}><td className="px-4 py-2 font-medium">{p.receiptNumber}{p.status === 'REVERSED' && <Badge tone="bad" className="ml-2">Reversed</Badge>}</td><td className="px-4 py-2 text-ink-2">{fmtDate(p.receivedAt)}</td><td className="tnum px-4 py-2 text-right font-medium">{money(p.amount, p.currency)}</td><td className="px-4 py-2 text-ink-2">{METHOD[p.method] ?? p.method}<p className="text-xs text-ink-3">{p.reference}{p.note ? ` · ${p.note}` : ''}</p></td><td className="px-4 py-2 text-ink-2">{p.previousExpiry ? `${fmtDate(p.previousExpiry)} → ` : ''}<b className="text-ink">{fmtDate(p.newExpiry)}</b><p className="text-xs text-ink-3">+{p.extension}</p></td></tr>)}</tbody></table></div>
+          )}
+        </Card></TabsContent>
         <TabsContent value="history" className="pt-4"><Card className="p-4"><ol className="space-y-4 border-l border-line pl-5">{d.events.map((e) => <li key={e.id} className="relative"><span className="absolute -left-[26px] top-1 size-2.5 rounded-full bg-accent" /><p className="text-[13px] font-medium">{titleCase(e.type)}{e.fromPlanCode && e.toPlanCode && e.fromPlanCode !== e.toPlanCode ? ` · ${e.fromPlanCode} → ${e.toPlanCode}` : e.toPlanCode ? ` · ${e.toPlanCode}` : ''}</p><p className="text-xs text-ink-3">{fmtDateTime(e.createdAt)}{e.note ? ` · ${e.note}` : ''}</p></li>)}</ol></Card></TabsContent>
       </Tabs>
-      <InvoiceDialog id={invoiceId} onClose={() => setInvoiceId(null)} canPay={manage && !!org?.billing?.selfServiceManualPayment} />
+      <InvoiceDialog id={invoiceId} onClose={() => setInvoiceId(null)} />
     </>
   );
 }

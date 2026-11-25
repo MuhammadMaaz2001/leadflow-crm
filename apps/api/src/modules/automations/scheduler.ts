@@ -46,12 +46,12 @@ export async function runLockedSchedulerTick(now = new Date()): Promise<{ ran: b
 }
 
 async function followUpReminders(orgId: string, now: Date) {
-  const soon = await db().followUp.findMany({ where: { organizationId: orgId, status: 'PENDING', reminderSentAt: null, dueAt: { gt: now, lte: addMinutes(now, 15) } }, include: { lead: true }, take: 500 });
+  const soon = await db().followUp.findMany({ where: { organizationId: orgId, status: 'PENDING', reminderSentAt: null, lead: { archivedAt: null }, dueAt: { gt: now, lte: addMinutes(now, 15) } }, include: { lead: true }, take: 500 });
   for (const f of soon) {
     await notify({ userIds: [f.assignedToId], type: 'FOLLOWUP_DUE', title: `Follow-up due soon: ${fullName(f.lead)}`, body: `${f.type.toLowerCase().replace('_', ' ')} at ${f.dueAt.toISOString()}`, link: `/leads/${f.leadId}`, entityType: 'followup', entityId: f.id, dedupeKey: `fu-due:${f.id}:${f.dueAt.getTime()}` });
     await db().followUp.update({ where: { id: f.id }, data: { reminderSentAt: now } });
   }
-  const overdue = await db().followUp.findMany({ where: { organizationId: orgId, status: 'PENDING', overdueNotifiedAt: null, dueAt: { lte: now } }, include: { lead: true }, take: 500 });
+  const overdue = await db().followUp.findMany({ where: { organizationId: orgId, status: 'PENDING', overdueNotifiedAt: null, lead: { archivedAt: null }, dueAt: { lte: now } }, include: { lead: true }, take: 500 });
   for (const f of overdue) {
     await notify({ userIds: [f.assignedToId], type: 'FOLLOWUP_OVERDUE', title: `Follow-up overdue: ${fullName(f.lead)}`, body: `Was due ${f.dueAt.toISOString()}`, link: `/leads/${f.leadId}`, entityType: 'followup', entityId: f.id, dedupeKey: `fu-overdue:${f.id}:${f.dueAt.getTime()}` });
     await db().followUp.update({ where: { id: f.id }, data: { overdueNotifiedAt: now, reminderSentAt: f.reminderSentAt ?? now } });
@@ -59,11 +59,18 @@ async function followUpReminders(orgId: string, now: Date) {
 }
 
 async function taskReminders(orgId: string, now: Date) {
-  const tasks = await db().task.findMany({ where: { organizationId: orgId, status: { in: ['TODO', 'IN_PROGRESS'] }, reminderSentAt: null, dueAt: { not: null, lte: addHours(now, 2) }, assignedToId: { not: null } }, take: 500 });
-  for (const t of tasks) {
-    const late = t.dueAt! <= now;
-    await notify({ userIds: [t.assignedToId], type: 'TASK_DEADLINE', title: late ? `Task overdue: ${t.title}` : `Task deadline approaching: ${t.title}`, body: `Due ${t.dueAt!.toISOString()}`, link: '/tasks', entityType: 'task', entityId: t.id, dedupeKey: `task-due:${t.id}:${t.dueAt!.getTime()}` });
+  const base = { organizationId: orgId, status: { in: ['TODO', 'IN_PROGRESS'] as Array<'TODO' | 'IN_PROGRESS'> }, assignedToId: { not: null }, OR: [{ leadId: null }, { lead: { archivedAt: null } }] };
+  // 1. deadline approaching (within 2 hours)
+  const soon = await db().task.findMany({ where: { ...base, reminderSentAt: null, dueAt: { gt: now, lte: addHours(now, 2) } }, take: 500 });
+  for (const t of soon) {
+    await notify({ userIds: [t.assignedToId], type: 'TASK_DEADLINE', title: `Task deadline approaching: ${t.title}`, body: `Due ${t.dueAt!.toISOString()}`, link: '/tasks', entityType: 'task', entityId: t.id, dedupeKey: `task-soon:${t.id}:${t.dueAt!.getTime()}` });
     await db().task.update({ where: { id: t.id }, data: { reminderSentAt: now } });
+  }
+  // 2. overdue — independent of whether the approaching notice was sent
+  const late = await db().task.findMany({ where: { ...base, overdueNotifiedAt: null, dueAt: { not: null, lte: now } }, take: 500 });
+  for (const t of late) {
+    await notify({ userIds: [t.assignedToId], type: 'TASK_DEADLINE', title: `Task overdue: ${t.title}`, body: `Was due ${t.dueAt!.toISOString()}`, link: '/tasks', entityType: 'task', entityId: t.id, dedupeKey: `task-over:${t.id}:${t.dueAt!.getTime()}` });
+    await db().task.update({ where: { id: t.id }, data: { overdueNotifiedAt: now, reminderSentAt: t.reminderSentAt ?? now } });
   }
 }
 

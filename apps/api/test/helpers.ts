@@ -89,3 +89,10 @@ export async function makePlatformAdmin(role: 'SUPER_ADMIN' | 'SUPPORT_ADMIN' | 
 }
 
 export { request, prisma, platformPrisma };
+
+let billingAdmin: Actor | null = null;
+/** Confirms an invoice as paid the way production does: a platform billing administrator records the received payment. */
+export async function confirmInvoicePaid(invoiceId: string, reference = `REF-${uniq('p')}`, extra: Record<string, unknown> = {}) {
+  billingAdmin ??= await makePlatformAdmin('BILLING_ADMIN');
+  return billingAdmin.agent.post(`/api/platform/invoices/${invoiceId}/mark-paid`).send({ method: 'BANK_TRANSFER', reference, ...extra });
+}

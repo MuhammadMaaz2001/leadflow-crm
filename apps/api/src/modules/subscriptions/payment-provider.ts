@@ -2,7 +2,10 @@ import { Prisma } from '@leadflow/database';
 import { platformPrisma } from '../../db';
 import { config } from '../../config';
 import { log } from '../../lib/logger';
-import { applyPayment } from './lifecycle';
+import { confirmInTx } from './manual-billing';
+
+/** Pseudo-administrator recorded as the actor when a *verified provider event* (not a person) confirms a payment. */
+const PROVIDER_ACTOR = { id: '00000000-0000-0000-0000-000000000000', email: 'payment-provider@system.local' };
 
 /**
  * Provider-independent payment interface.
@@ -67,7 +70,7 @@ export async function settleFromProviderEvent(providerName: string, ev: Provider
       return done('REJECTED', 'amount or currency does not match the invoice', inv.id);
     }
     if (inv.status !== 'OPEN' && inv.status !== 'FAILED') return done('IGNORED', `invoice is ${inv.status.toLowerCase()}`, inv.id);
-    await applyPayment(inv.id, { actorId: null, reference: ev.providerPaymentId, method: `PROVIDER_${providerName.toUpperCase()}` }, tx);
+    await confirmInTx(tx, PROVIDER_ACTOR, inv.organizationId, { invoiceId: inv.id, amount: Number(ev.amount), currency: ev.currency, method: 'OTHER', reference: `${providerName}:${ev.providerPaymentId}`, note: `Confirmed by verified ${providerName} event ${ev.eventId}` });
     return done('APPLIED', undefined, inv.id);
   });
 }

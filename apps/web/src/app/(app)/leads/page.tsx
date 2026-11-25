@@ -29,37 +29,56 @@ export interface LeadRow extends EditableLead {
 
 const DEFAULTS = { q: '', status: '', priorityId: '', sourceId: '', assignedToId: '', tagId: '', createdFrom: '', createdTo: '', archived: 'false', uncontacted: '', hasOverdueFollowUp: '', noFollowUp: '', sort: 'createdAt', order: 'desc', page: '1', pageSize: '25' };
 
-interface SavedView { name: string; query: string }
+interface SavedView { id: string; name: string; query: string; isShared: boolean; mine: boolean; owner: string }
 function SavedViews({ orgId }: { orgId: string | undefined }) {
   const router = useRouter();
   const params = useSearchParams();
-  const key = `lf_views_${orgId}`;
-  const [views, setViews] = React.useState<SavedView[]>([]);
+  const { can } = useOrg();
+  const confirm = useConfirm();
+  const q = useT<SavedView[]>(['lead-views'], () => api.get<SavedView[]>('/lead-views'));
+  const views = q.data ?? [];
   const [naming, setNaming] = React.useState(false);
   const [name, setName] = React.useState('');
-  React.useEffect(() => { try { setViews(JSON.parse(localStorage.getItem(key) ?? '[]')); } catch { setViews([]); } }, [key]);
-  const persist = (v: SavedView[]) => { setViews(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ } };
+  const [shared, setShared] = React.useState(false);
+  const save = useAct((v: { name: string; query: string; isShared: boolean }) => api.post<SavedView>('/lead-views', v), { success: 'View saved', invalidate: ['lead-views'], onSuccess: () => setNaming(false) });
+  const remove = useAct((id: string) => api.del(`/lead-views/${id}`), { success: 'View deleted', invalidate: ['lead-views'] });
+  // one-time import of views that older versions kept in this browser only
+  React.useEffect(() => {
+    if (!orgId || !q.isSuccess) return;
+    const key = `lf_views_${orgId}`;
+    try {
+      const old = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ name: string; query: string }>;
+      if (!old.length) return;
+      localStorage.removeItem(key);
+      Promise.all(old.slice(0, 50).map((v) => api.post('/lead-views', { name: v.name, query: v.query, isShared: false }).catch(() => undefined))).then(() => q.refetch());
+    } catch { /* storage unavailable */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, q.isSuccess]);
   const current = (() => { const p = new URLSearchParams(params.toString()); p.delete('page'); return p.toString(); })();
+  const submit = () => { if (name.trim()) save.mutate({ name: name.trim(), query: current, isShared: shared }); };
   return (
     <>
       <DropdownMenu>
         <DropdownTrigger asChild><Button><Bookmark className="size-3.5" />Views</Button></DropdownTrigger>
-        <DropdownContent align="start" className="w-64">
+        <DropdownContent align="start" className="w-72">
           <DropdownLabel>Saved views</DropdownLabel>
           {views.length === 0 && <p className="px-2 py-1.5 text-xs text-ink-3">No saved views yet. Set filters, then save them.</p>}
           {views.map((v) => (
-            <DropdownItem key={v.name} onSelect={() => router.replace(v.query ? `/leads?${v.query}` : '/leads')}>
-              <span className="min-w-0 flex-1 truncate">{v.name}</span>
-              <button aria-label={`Delete view ${v.name}`} className="text-ink-3 hover:text-bad" onClick={(e) => { e.stopPropagation(); persist(views.filter((x) => x.name !== v.name)); }}><Trash2 className="size-3.5" /></button>
+            <DropdownItem key={v.id} onSelect={() => router.replace(v.query ? `/leads?${v.query}` : '/leads')}>
+              <span className="min-w-0 flex-1 truncate">{v.name}{v.isShared && <span className="ml-1.5 rounded bg-subtle px-1 text-[10px] text-ink-3">{v.mine ? 'shared' : `by ${v.owner}`}</span>}</span>
+              {(v.mine || can('settings.manage')) && <button aria-label={`Delete view ${v.name}`} className="text-ink-3 hover:text-bad" onClick={async (e) => { e.stopPropagation(); if (await confirm({ title: `Delete “${v.name}”?`, description: v.isShared ? 'It disappears for everyone who uses it.' : undefined, confirmLabel: 'Delete', destructive: true })) remove.mutate(v.id); }}><Trash2 className="size-3.5" /></button>}
             </DropdownItem>
           ))}
           <DropdownSeparator />
-          <DropdownItem icon={<BookmarkPlus />} onSelect={() => { setName(''); setNaming(true); }}>Save current filters…</DropdownItem>
+          <DropdownItem icon={<BookmarkPlus />} onSelect={() => { setName(''); setShared(false); setNaming(true); }}>Save current filters…</DropdownItem>
         </DropdownContent>
       </DropdownMenu>
-      <Dialog open={naming} onOpenChange={setNaming} size="sm" title="Save view" description="Saved in this browser for this workspace."
-        footer={<><Button onClick={() => setNaming(false)}>Cancel</Button><Button variant="primary" disabled={!name.trim()} onClick={() => { persist([...views.filter((x) => x.name !== name.trim()), { name: name.trim(), query: current }]); setNaming(false); toast.success('View saved'); }}>Save view</Button></>}>
-        <Field label="View name" required><Input aria-label="View name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot leads without follow-up" onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) { persist([...views.filter((x) => x.name !== name.trim()), { name: name.trim(), query: current }]); setNaming(false); toast.success('View saved'); } }} /></Field>
+      <Dialog open={naming} onOpenChange={setNaming} size="sm" title="Save view" description="Saved to your account and available on every device."
+        footer={<><Button onClick={() => setNaming(false)}>Cancel</Button><Button variant="primary" loading={save.isPending} disabled={!name.trim()} onClick={submit}>Save view</Button></>}>
+        <div className="space-y-3">
+          <Field label="View name" required><Input aria-label="View name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hot leads without follow-up" onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} /></Field>
+          {can('leads.assign') && <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />Share with everyone in this workspace</label>}
+        </div>
       </Dialog>
     </>
   );

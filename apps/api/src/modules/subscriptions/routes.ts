@@ -1,11 +1,10 @@
-import { changePlanSchema, recordPaymentSchema, PLAN_FEATURES } from '@leadflow/shared';
+import { changePlanSchema, PLAN_FEATURES } from '@leadflow/shared';
 import { db } from '../../db';
-import { AppError, forbidden, notFound } from '../../lib/errors';
-import { config } from '../../config';
+import { AppError, notFound } from '../../lib/errors';
 import { audit } from '../../lib/audit';
 import { defineRoutes } from '../../http';
-import { notify } from '../notifications/service';
-import { createRenewalInvoice, applyPayment } from './lifecycle';
+import { createRenewalInvoice } from './lifecycle';
+import { publicPayment } from './manual-billing';
 import { GRACE_PERIOD_DAYS, getUsage, nextInvoiceNumber, periodEnd, recordSubscriptionEvent } from './service';
 
 export const billing = defineRoutes('Billing', '/billing');
@@ -14,12 +13,13 @@ const money = (v: unknown) => Number(v);
 const price = (p: { priceMonthly: unknown; priceYearly: unknown }, i: 'MONTHLY' | 'YEARLY') => money(i === 'YEARLY' ? p.priceYearly : p.priceMonthly);
 
 billing.get('/', { perm: ['billing.view', 'billing.manage'], allowExpired: true, allowSuspended: true, summary: 'Subscription, usage, invoices and history' }, async ({ ctx }) => {
-  const [sub, usage, invoices, events, plans] = await Promise.all([
+  const [sub, usage, invoices, events, plans, payments] = await Promise.all([
     db().subscription.findUnique({ where: { organizationId: ctx.orgId }, include: { plan: true } }),
     getUsage(ctx),
     db().invoice.findMany({ where: { organizationId: ctx.orgId }, orderBy: { issuedAt: 'desc' }, take: 50, include: { plan: { select: { code: true, name: true } } } }),
     db().subscriptionEvent.findMany({ where: { organizationId: ctx.orgId }, orderBy: { createdAt: 'desc' }, take: 50 }),
     db().subscriptionPlan.findMany({ where: { isActive: true, isPublic: true }, orderBy: { sortOrder: 'asc' } }),
+    db().payment.findMany({ where: { organizationId: ctx.orgId }, orderBy: { receivedAt: 'desc' }, take: 100 }),
   ]);
   const pendingPlan = sub?.pendingPlanId ? plans.find((p) => p.id === sub.pendingPlanId) ?? (await db().subscriptionPlan.findUnique({ where: { id: sub.pendingPlanId } })) : null;
   return {
@@ -27,9 +27,10 @@ billing.get('/', { perm: ['billing.view', 'billing.manage'], allowExpired: true,
     usage, graceDays: GRACE_PERIOD_DAYS,
     invoices: invoices.map((i) => ({ ...i, amount: money(i.amount) })),
     events,
+    payments: payments.map(publicPayment),
     plans: plans.map((p) => ({ ...p, priceMonthly: money(p.priceMonthly), priceYearly: money(p.priceYearly) })),
     features: PLAN_FEATURES,
-    paymentNote: 'Payments are recorded manually in this build (no payment processor is connected). A recorded payment is only marked as paid when an authorised person enters a reference.',
+    paymentNote: 'Payments are confirmed manually by LeadFlow billing after the money has been received. Your plan and expiry date change only when a payment is confirmed; you cannot mark invoices as paid yourself.',
   };
 });
 
@@ -99,15 +100,6 @@ billing.get('/invoices/:id', { perm: ['billing.view', 'billing.manage'], allowEx
   return { ...inv, amount: money(inv.amount), billTo: { name: org.name, email: org.contactEmail, address: org.address, country: org.country } };
 });
 
-billing.post('/invoices/:id/record-payment', { perm: 'billing.manage', allowExpired: true, body: recordPaymentSchema, summary: 'DEVELOPMENT / MANUAL: record that an invoice was paid outside the system' }, async ({ ctx, params, body }) => {
-  // A tenant must never be able to declare its own invoice paid in a real deployment: only dev/test environments allow this.
-  if (!config.devTools) throw forbidden('Invoices are marked as paid by LeadFlow once payment is received. Contact billing support if you have already paid.', 'SELF_PAYMENT_DISABLED');
-  const inv = await db().invoice.findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
-  if (!inv) throw notFound('Invoice');
-  if (inv.status === 'PAID') throw new AppError(409, 'ALREADY_PAID', 'This invoice is already paid.');
-  if (inv.status === 'VOID') throw new AppError(409, 'VOID', 'This invoice was voided.');
-  await applyPayment(inv.id, { actorId: ctx.userId, reference: body.reference, note: body.note }, db());
-  await audit(ctx, 'billing.payment_recorded_manually', 'invoice', inv.id, { reference: body.reference, number: inv.number, method: 'MANUAL_DEV' });
-  await notify({ userIds: [ctx.userId], type: 'BILLING', title: `Payment recorded for ${inv.number}`, link: '/billing' });
-  return { paid: true };
-});
+// NOTE: there is intentionally NO endpoint for a workspace to mark an invoice paid or to change its expiry. Payments are confirmed
+// by a platform administrator (modules/platform-admin) after the money was actually received; the database additionally refuses
+// such changes from the application role (triggers invoices_paid_guard / subscriptions_change_guard, payments is read-only).

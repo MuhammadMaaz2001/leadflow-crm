@@ -4,7 +4,7 @@ import { db } from '../../db';
 import { AppError, forbidden, notFound } from '../../lib/errors';
 import { audit } from '../../lib/audit';
 import { defineRoutes, created } from '../../http';
-import { assertCanGrant, createInvitation, ensureNotLastOwner } from './service';
+import { openWorkload, transferWorkload, assertCanGrant, createInvitation, ensureNotLastOwner } from './service';
 import { assertSeatCapacity } from '../subscriptions/service';
 
 export const members = defineRoutes('Team', '');
@@ -37,6 +37,7 @@ members.patch('/members/:id', { perm: 'team.manage', body: memberUpdateSchema, s
   if (target.userId === ctx.userId && body.roleId && ctx.roleKey !== 'OWNER') throw forbidden('You cannot change your own role.', 'PRIVILEGE_ESCALATION');
   if (target.role.systemKey !== 'OWNER') assertCanGrant(ctx, target.role); // cannot manage someone more powerful than you
   const data: Record<string, unknown> = {};
+  let transferred: Awaited<ReturnType<typeof transferWorkload>> | null = null;
   if (body.roleId && body.roleId !== target.roleId) {
     const role = await db().role.findFirst({ where: { id: body.roleId, organizationId: ctx.orgId } });
     if (!role) throw notFound('Role');
@@ -48,6 +49,12 @@ members.patch('/members/:id', { perm: 'team.manage', body: memberUpdateSchema, s
     if (body.status === 'DEACTIVATED') {
       if (target.userId === ctx.userId) throw new AppError(409, 'SELF_DEACTIVATE', 'You cannot deactivate yourself.');
       await ensureNotLastOwner(ctx, target.id);
+      // the member's open work must not be silently orphaned: the administrator decides who takes it (or releases it)
+      const load = await openWorkload(ctx.orgId, target.userId);
+      if ((load.leads || load.followUps || load.tasks || load.opportunities) && !body.transferTo) {
+        throw new AppError(409, 'HAS_OPEN_WORK', 'This member still owns open leads, follow-ups, tasks or deals. Choose who takes them over.', { workload: load });
+      }
+      if (body.transferTo) transferred = await transferWorkload(ctx, target.userId, body.transferTo);
       data.deactivatedAt = new Date();
     } else {
       await assertSeatCapacity(ctx, true);
@@ -57,8 +64,8 @@ members.patch('/members/:id', { perm: 'team.manage', body: memberUpdateSchema, s
   }
   if (body.isAssignable !== undefined) data.isAssignable = body.isAssignable;
   const updated = await db().membership.update({ where: { id: target.id }, data });
-  await audit(ctx, 'member.updated', 'membership', target.id, { changes: Object.keys(data) });
-  return updated;
+  await audit(ctx, 'member.updated', 'membership', target.id, { changes: Object.keys(data), ...(transferred ? { transferred, transferTo: body.transferTo } : {}) });
+  return { ...updated, transferred };
 });
 
 members.get('/invitations', { perm: 'team.manage', summary: 'List invitations' }, async ({ ctx }) => {

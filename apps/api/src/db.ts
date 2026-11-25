@@ -28,6 +28,8 @@ interface Store {
   orgId: string | null;
   userId: string | null;
   afterCommit: Array<() => Promise<void>>;
+  /** Set while an automation executes: actions performed by automations never trigger other automations (no loops). */
+  suppressTriggers?: boolean;
 }
 const als = new AsyncLocalStorage<Store>();
 

@@ -13,6 +13,7 @@ import { Field, FormError, Input, Select } from '@/components/ui/form';
 import { Badge, Card, EmptyState, PageHeader, Pagination } from '@/components/ui/data';
 import { DataTable, type Column } from '@/components/ui/table';
 import { Dialog, useConfirm } from '@/components/ui/overlay';
+import { PaymentDialog } from '@/components/platform-billing';
 
 interface I { id: string; number: string; description: string; status: string; amount: number; currency: string; issuedAt: string; dueAt: string; paidAt: string | null; paymentMethod: string | null; paymentReference: string | null; failureReason: string | null; organization: { id: string; name: string } }
 
@@ -24,7 +25,6 @@ export default function InvoicesPage() {
   const [pay, setPay] = React.useState<I | null>(null); const [fail, setFail] = React.useState<I | null>(null);
   const [text, setText] = React.useState(''); const [error, setError] = React.useState<string | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['platform'] });
-  const markPaid = useMutation({ mutationFn: () => api.post(`/platform/invoices/${pay!.id}/mark-paid`, { reference: text }, { tenant: false }), onSuccess: () => { toast.success('Recorded as paid manually'); setPay(null); refresh(); }, onError: (e) => setError(errMsg(e)) });
   const markFailed = useMutation({ mutationFn: () => api.post(`/platform/invoices/${fail!.id}/mark-failed`, { reason: text }, { tenant: false }), onSuccess: () => { toast.success('Marked as failed'); setFail(null); refresh(); }, onError: (e) => setError(errMsg(e)) });
   const voidInv = useMutation({ mutationFn: (id: string) => api.post(`/platform/invoices/${id}/void`, {}, { tenant: false }), onSuccess: () => { toast.success('Invoice voided'); refresh(); }, onError: (e) => toast.error(errMsg(e)) });
   const columns: Column<I>[] = [
@@ -33,7 +33,7 @@ export default function InvoicesPage() {
     { key: 'amount', header: 'Amount', className: 'text-right', cell: (i) => <span className="tnum font-medium">{money(i.amount, i.currency)}</span> },
     { key: 'status', header: 'Status', cell: (i) => <div><Badge tone={i.status === 'PAID' ? 'ok' : i.status === 'OPEN' ? 'warn' : i.status === 'FAILED' ? 'bad' : 'neutral'}>{titleCase(i.status)}</Badge>{i.status === 'PAID' && <p className="mt-0.5 text-[10px] text-ink-3">{i.paymentMethod === 'MANUAL_PLATFORM' || i.paymentMethod === 'MANUAL_DEV' ? 'manual' : i.paymentMethod} · {i.paymentReference}</p>}{i.failureReason && <p className="mt-0.5 text-[10px] text-bad">{i.failureReason}</p>}</div> },
     { key: 'issued', header: 'Issued', hideBelow: 'md', cell: (i) => <span className="text-ink-2">{fmtDate(i.issuedAt)}</span> },
-    { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', mobileLabel: '', cell: (i) => canBill && ['OPEN', 'FAILED'].includes(i.status) ? <div className="flex justify-end gap-1.5"><Button size="sm" variant="primary" onClick={() => { setText(''); setError(null); setPay(i); }}><Check className="size-3.5" />Mark paid</Button>{i.status === 'OPEN' && <Button size="sm" onClick={() => { setText(''); setError(null); setFail(i); }}>Mark failed</Button>}<Button size="sm" variant="dangerGhost" aria-label={`Void ${i.number}`} onClick={async () => { if (await confirm({ title: `Void ${i.number}?`, destructive: true, confirmLabel: 'Void invoice' })) voidInv.mutate(i.id); }}><X className="size-3.5" /></Button></div> : null },
+    { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', mobileLabel: '', cell: (i) => canBill && ['OPEN', 'FAILED'].includes(i.status) ? <div className="flex justify-end gap-1.5"><Button size="sm" variant="primary" onClick={() => { setText(''); setError(null); setPay(i); }}><Check className="size-3.5" />Confirm payment</Button>{i.status === 'OPEN' && <Button size="sm" onClick={() => { setText(''); setError(null); setFail(i); }}>Mark failed</Button>}<Button size="sm" variant="dangerGhost" aria-label={`Void ${i.number}`} onClick={async () => { if (await confirm({ title: `Void ${i.number}?`, destructive: true, confirmLabel: 'Void invoice' })) voidInv.mutate(i.id); }}><X className="size-3.5" /></Button></div> : null },
   ];
   return (
     <>
@@ -43,8 +43,8 @@ export default function InvoicesPage() {
         <DataTable columns={columns} rows={res.data?.data} loading={res.isLoading} error={res.error} onRetry={() => res.refetch()} empty={<EmptyState icon={<FileText />} title="No invoices" />} />
         {(res.data?.meta.total ?? 0) > 0 && <Pagination page={page} pageSize={25} total={res.data!.meta.total} noun="invoices" onPage={setPage} />}
       </Card>
-      <p className="mt-3 text-xs text-ink-3">No payment processor is integrated. “Mark paid” records a payment received outside the system and is attributed to you in the audit log.</p>
-      <Dialog open={!!pay} onOpenChange={(o) => !o && setPay(null)} size="sm" title={`Record payment for ${pay?.number}`} description="Manual entry — nothing is charged." footer={<><Button onClick={() => setPay(null)}>Cancel</Button><Button variant="primary" loading={markPaid.isPending} disabled={!text.trim()} onClick={() => markPaid.mutate()}>Record payment</Button></>}><div className="space-y-3"><FormError message={error} /><Field label="Payment reference" required><Input aria-label="Payment reference" value={text} onChange={(e) => setText(e.target.value)} placeholder="Wire #, cheque no., …" /></Field></div></Dialog>
+      <p className="mt-3 text-xs text-ink-3">No payment processor is integrated. “Confirm payment” records money received outside the system, issues a receipt and extends the subscription. It is attributed to you in the audit log.</p>
+      {pay && <PaymentDialog orgId={pay.organization.id} open onClose={() => setPay(null)} invoice={{ id: pay.id, number: pay.number, amount: pay.amount, currency: pay.currency, interval: pay.description.includes('annual') ? 'YEARLY' : 'MONTHLY' }} />}
       <Dialog open={!!fail} onOpenChange={(o) => !o && setFail(null)} size="sm" title={`Mark ${fail?.number} as failed`} footer={<><Button onClick={() => setFail(null)}>Cancel</Button><Button variant="danger" loading={markFailed.isPending} disabled={text.trim().length < 3} onClick={() => markFailed.mutate()}>Mark failed</Button></>}><div className="space-y-3"><FormError message={error} /><Field label="Failure reason" required><Input aria-label="Failure reason" value={text} onChange={(e) => setText(e.target.value)} /></Field></div></Dialog>
     </>
   );

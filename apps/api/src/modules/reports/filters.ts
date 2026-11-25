@@ -37,6 +37,7 @@ export function buildFilterCtx(ctx: Ctx, f: ReportFilters, viewAll: boolean): Fi
   const oa = assigneeId ? Prisma.sql` AND o.owner_id = ${assigneeId}::uuid` : Prisma.empty;
   const os = sourceId ? Prisma.sql` AND l.source_id = ${sourceId}::uuid` : Prisma.empty;
   const op = pipelineId ? Prisma.sql` AND o.pipeline_id = ${pipelineId}::uuid` : Prisma.empty;
-  const oppWhere = Prisma.sql`o.organization_id = ${org}::uuid AND o.archived_at IS NULL${oa}${os}${op}`;
+  // deals of archived / merged leads are hidden everywhere (they come back when the lead is restored)
+  const oppWhere = Prisma.sql`o.organization_id = ${org}::uuid AND o.archived_at IS NULL AND EXISTS (SELECT 1 FROM leads la WHERE la.id = o.lead_id AND la.organization_id = o.organization_id AND la.archived_at IS NULL AND la.merged_into_id IS NULL)${oa}${os}${op}`;
   return { orgId: org, tz: ctx.org.timezone, range, assigneeId, sourceId, pipelineId, restricted, leadWhere, leadAnyWhere, oppWhere, now: new Date() };
 }

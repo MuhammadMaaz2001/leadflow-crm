@@ -13,7 +13,8 @@ import { pickAssignee, validateCustomFields } from './service';
 import { assertSpreadsheet } from '../../lib/upload';
 import { buildLeadWhere, leadFilterQuery, leadInclude, shapeLeads } from './queries';
 
-export const MAX_IMPORT_ROWS = 2000;
+export const MAX_IMPORT_ROWS = 5000;
+export const MAX_EXPORT_ROWS = 20000;
 
 const HEADER_ALIASES: Record<string, string> = {
   firstname: 'firstName', first: 'firstName', givenname: 'firstName', lastname: 'lastName', last: 'lastName', surname: 'lastName', familyname: 'lastName',
@@ -56,7 +57,7 @@ export async function parseUpload(file: { originalname: string; buffer: Buffer }
 export interface ImportRowError { row: number; field?: string; message: string; data?: Record<string, string> }
 export interface ImportResult {
   dryRun: boolean; total: number; valid: number; created: number; skippedDuplicates: number; failed: number;
-  errors: ImportRowError[]; duplicates: ImportRowError[]; mapping: Record<string, string>; unmappedHeaders: string[];
+  errors: ImportRowError[]; duplicates: ImportRowError[]; mapping: Record<string, string>; unmappedHeaders: string[]; notes: string[];
 }
 
 export const importOptions = z.object({
@@ -129,7 +130,7 @@ export async function importLeads(ctx: Ctx, file: { originalname: string; buffer
     const custom: Record<string, unknown> = {};
     for (const [h, f] of Object.entries(mapping)) if (f.startsWith('custom:')) custom[f.slice(7)] = r.values[h];
     let cleanCustom: Record<string, unknown> = {};
-    try { cleanCustom = await validateCustomFields(ctx, custom); } catch (e) { fail((e as AppError).message + ': ' + JSON.stringify((e as AppError).details && ((e as AppError).details as { fields: unknown }).fields), 'customFields'); continue; }
+    try { cleanCustom = await validateCustomFields(ctx, custom, false, customDefs); } catch (e) { fail((e as AppError).message + ': ' + JSON.stringify((e as AppError).details && ((e as AppError).details as { fields: unknown }).fields), 'customFields'); continue; }
     const srcName = col(r, 'source');
     let sourceId = srcName ? sources.find((s) => s.name.toLowerCase() === srcName.toLowerCase())?.id ?? null : null;
     if (srcName && !sourceId) { sourceId = newSources.get(srcName.toLowerCase()) ?? null; if (!sourceId) { sourceId = uuid(); newSources.set(srcName.toLowerCase(), sourceId); } }
@@ -142,7 +143,7 @@ export async function importLeads(ctx: Ctx, file: { originalname: string; buffer
     });
   }
 
-  const result: ImportResult = { dryRun: opts.dryRun, total: rows.length, valid: ready.length, created: 0, skippedDuplicates: duplicates.length, failed: errors.length, errors, duplicates, mapping, unmappedHeaders: unmapped };
+  const result: ImportResult = { dryRun: opts.dryRun, total: rows.length, valid: ready.length, created: 0, skippedDuplicates: duplicates.length, failed: errors.length, errors, duplicates, mapping, unmappedHeaders: unmapped, notes: [] };
   if (opts.dryRun || !ready.length) return result;
 
   // plan limits are enforced server side before anything is written
@@ -176,7 +177,9 @@ export async function importLeads(ctx: Ctx, file: { originalname: string; buffer
   await db().activity.createMany({
     data: ready.map((r) => ({ organizationId: ctx.orgId, leadId: r.id, type: 'LEAD_CREATED' as const, actorId: ctx.userId, title: 'Lead created (import)', metadata: { import: file.originalname, row: r.row.rowNumber } })),
   });
+  // automations fire for the first 200 imported leads only (a bulk import must not flood people with notifications); the result says so
   for (const r of ready.slice(0, 200)) await emitTrigger('LEAD_CREATED', { type: 'lead', id: r.id, leadId: r.id });
+  if (ready.length > 200) result.notes.push(`Automations for “new lead” ran for the first 200 of ${ready.length} imported leads.`);
   await logActivity({ type: 'NOTE', title: `Imported ${ready.length} leads from ${file.originalname}`, leadId: null, metadata: { imported: ready.length, skipped: duplicates.length, failed: errors.length } });
   result.created = ready.length;
   return result;
@@ -190,10 +193,12 @@ export const exportQuery = leadFilterQuery.extend({
 export async function exportLeads(ctx: Ctx, q: z.infer<typeof exportQuery>) {
   const where = buildLeadWhere(ctx, q);
   if (q.ids?.length) (where.AND as unknown[]).push({ id: { in: q.ids } });
-  const rows = await db().lead.findMany({ where, include: leadInclude, orderBy: { createdAt: 'desc' }, take: 20000 });
+  const rows = await db().lead.findMany({ where, include: leadInclude, orderBy: { createdAt: 'desc' }, take: MAX_EXPORT_ROWS + 1 });
+  if (rows.length > MAX_EXPORT_ROWS) throw new AppError(422, 'EXPORT_TOO_LARGE', `This export has more than ${MAX_EXPORT_ROWS.toLocaleString()} leads. Narrow the filters (for example by date or status) and export in parts.`);
+  const fields = await db().customFieldDef.findMany({ where: { organizationId: ctx.orgId, isActive: true }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
   const shaped = await shapeLeads(ctx, rows);
-  const header = ['First Name', 'Last Name', 'Email', 'Phone', 'Company', 'Job Title', 'Source', 'Campaign', 'Priority', 'Status', 'Assigned To', 'Assigned To Email', 'Tags', 'Created At', 'Created By', 'Last Activity', 'Next Follow-up', 'Description'];
-  const data = shaped.map((l) => [l.firstName, l.lastName ?? '', l.email ?? '', l.phone ?? '', l.companyName ?? '', l.jobTitle ?? '', l.source?.name ?? '', l.campaign ?? '', l.priority?.name ?? '', l.status, l.assignedTo?.name ?? '', l.assignedTo?.email ?? '', l.tags.map((t) => t.name).join('; '), l.createdAt.toISOString(), l.createdBy?.name ?? '', l.lastActivityAt.toISOString(), l.nextFollowUpAt?.toISOString() ?? '', l.description ?? '']);
+  const header = ['First Name', 'Last Name', 'Email', 'Phone', 'Company', 'Job Title', 'Source', 'Campaign', 'Priority', 'Status', 'Assigned To', 'Assigned To Email', 'Tags', 'Created At', 'Created By', 'Last Activity', 'Next Follow-up', 'Description', ...fields.map((f) => f.label)];
+  const data = shaped.map((l) => [l.firstName, l.lastName ?? '', l.email ?? '', l.phone ?? '', l.companyName ?? '', l.jobTitle ?? '', l.source?.name ?? '', l.campaign ?? '', l.priority?.name ?? '', l.status, l.assignedTo?.name ?? '', l.assignedTo?.email ?? '', l.tags.map((t) => t.name).join('; '), l.createdAt.toISOString(), l.createdBy?.name ?? '', l.lastActivityAt.toISOString(), l.nextFollowUpAt?.toISOString() ?? '', l.description ?? '', ...fields.map((f) => { const v = ((l as unknown as { customFields?: Record<string, unknown> }).customFields ?? {})[f.key]; return v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v); })]);
   return tabular('leads', header, data, q.format);
 }
 

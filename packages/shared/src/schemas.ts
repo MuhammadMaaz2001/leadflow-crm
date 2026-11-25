@@ -46,6 +46,8 @@ export const onboardingSchema = orgProfileSchema.partial().extend({ complete: z.
 export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email(), roleId: uuid });
 export const memberUpdateSchema = z.object({
   roleId: uuid.optional(), status: z.enum(['ACTIVE', 'DEACTIVATED']).optional(), isAssignable: z.boolean().optional(),
+  /** When deactivating a member who still owns open work: another member's id, or 'UNASSIGN' to release it (follow-ups go to you). */
+  transferTo: z.union([uuid, z.literal('UNASSIGN')]).optional(),
 });
 export const roleSchema = z.object({
   name: trimmed(60).min(2), description: nullableText(200), permissions: z.array(z.string()).max(60),
@@ -165,6 +167,8 @@ export const automationSchema = z.object({
     z.object({ type: z.literal('NOTIFY'), recipient: z.enum(['OWNER', 'MANAGERS', 'USER']), userId: uuid.optional(), message: optionalText(300) }),
     z.object({ type: z.literal('CREATE_TASK'), title: trimmed(200).min(1), assignee: z.enum(['OWNER', 'MANAGERS', 'USER']).default('OWNER'), userId: uuid.optional(), dueInHours: z.coerce.number().int().min(1).max(720).default(24), priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM') }),
     z.object({ type: z.literal('SET_PRIORITY'), priorityId: uuid }),
+    z.object({ type: z.literal('ASSIGN_LEAD'), mode: z.enum(['USER', 'ROUND_ROBIN']), userId: uuid.optional(), onlyIfUnassigned: z.boolean().default(true) }),
+    z.object({ type: z.literal('CREATE_FOLLOWUP'), followUpType: z.enum(['CALL', 'WHATSAPP', 'EMAIL', 'MEETING', 'VIDEO_CALL', 'OTHER']).default('CALL'), assignee: z.enum(['OWNER', 'MANAGERS', 'USER']).default('OWNER'), userId: uuid.optional(), dueInHours: z.coerce.number().int().min(1).max(720).default(24), notes: optionalText(500) }),
   ])).min(1, 'Add at least one action').max(5),
   isEnabled: z.boolean().optional(),
 });
@@ -178,7 +182,30 @@ export const assignmentRuleSchema = z.object({
 export const notificationPrefsSchema = z.object({ prefs: z.array(z.object({ type: z.string(), inApp: z.boolean() })) });
 
 export const changePlanSchema = z.object({ planCode: z.string().min(1), interval: z.enum(['MONTHLY', 'YEARLY']).default('MONTHLY') });
-export const recordPaymentSchema = z.object({ reference: trimmed(120).min(1, 'Enter a payment reference'), note: optionalText(300) });
+export const PAYMENT_METHODS = ['BANK_TRANSFER', 'CASH', 'CARD_OFFLINE', 'CHEQUE', 'MOBILE_MONEY', 'OTHER'] as const;
+/** Subscription extension: a number of calendar months OR a custom number of days. */
+export const extensionSchema = z.object({
+  months: z.coerce.number().int().min(1).max(36).optional(),
+  days: z.coerce.number().int().min(1).max(1100).optional(),
+}).refine((e) => (e.months ? 1 : 0) + (e.days ? 1 : 0) === 1, { message: 'Choose a number of months or a number of days (not both)' });
+/** A payment that was received OUTSIDE the system and is being confirmed by a platform administrator. */
+export const manualPaymentSchema = z.object({
+  invoiceId: uuid.optional(),
+  planCode: z.string().trim().min(1).optional(),
+  amount: z.coerce.number().positive('Enter the amount received').max(1e9).optional(),
+  currency: z.string().trim().length(3).toUpperCase().optional(),
+  method: z.enum(PAYMENT_METHODS, { message: 'Select how the payment was received' }),
+  reference: trimmed(120).min(1, 'Enter a payment reference'),
+  receivedAt: z.string().trim().min(8).max(40).optional(),
+  extension: extensionSchema.optional(),
+  note: optionalText(300),
+  internalNote: optionalText(1000),
+  allowAmountMismatch: z.boolean().optional(),
+  idempotencyKey: z.string().trim().min(8).max(80).optional(),
+});
+export const extendSubscriptionSchema = z.object({ extension: extensionSchema, reason: trimmed(300).min(5, 'Explain why the subscription is being extended') });
+export const reversePaymentSchema = z.object({ reason: trimmed(300).min(5, 'Explain why the payment is being reversed') });
+export type ManualPaymentInput = z.infer<typeof manualPaymentSchema>;
 export const planAdminSchema = z.object({
   code: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,30}$/), name: trimmed(60).min(2), description: nullableText(300),
   priceMonthly: z.coerce.number().min(0), priceYearly: z.coerce.number().min(0), trialDays: z.coerce.number().int().min(0).max(120).default(0),

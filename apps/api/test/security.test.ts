@@ -139,7 +139,7 @@ describe('file upload validation', () => {
   it('enforces row, column and formula-injection protections', async () => {
     const wide = Array.from({ length: 150 }, (_, i) => `c${i}`).join(',');
     expect((await upload(Buffer.from(`${wide}\n${wide}`), 'wide.csv')).body.error.code).toBe('TOO_MANY_COLUMNS');
-    const rows = ['First Name,Email', ...Array.from({ length: 2005 }, (_, i) => `A${i},a${i}@x.test`)].join('\n');
+    const rows = ['First Name,Email', ...Array.from({ length: 5005 }, (_, i) => `A${i},a${i}@x.test`)].join('\n');
     expect((await upload(Buffer.from(rows), 'rows.csv')).body.error.code).toBe('TOO_MANY_ROWS');
     await owner.post('/leads', { firstName: '=HYPERLINK("http://evil","x")', email: 'inj@x.test' });
     const exp = await owner.get('/leads/export?format=csv');

@@ -349,29 +349,62 @@ test.describe('automations', () => {
 });
 
 test.describe('billing & plan limits', () => {
-  test('upgrade creates an invoice that only changes the plan after a manual payment; Free enforces limits', async () => {
+  test('upgrade creates an invoice; the plan changes only when a platform admin confirms the payment; the owner sees the receipt', async ({ browser }) => {
     const p = ws.people.OWNER.page;
     await p.goto('/billing');
-    // from a trial, choosing a paid plan issues an invoice; nothing changes until payment is recorded
+    // from a trial, choosing a paid plan issues an invoice; nothing changes until a payment is CONFIRMED by LeadFlow billing
     await p.getByRole('button', { name: 'Switch to Starter' }).click();
     await p.getByRole('button', { name: 'Switch plan' }).click();
-    await expect(p.getByText('Development / manual payment')).toBeVisible();
-    await p.getByLabel('Payment reference').fill('BANK-REF-STARTER');
-    await p.getByRole('button', { name: 'Record manual payment' }).click();
-    await toast(p, 'Payment recorded');
+    await expect(p.getByText('Awaiting payment')).toBeVisible();
+    await expect(p.getByLabel('Payment reference')).toHaveCount(0);                  // a workspace cannot mark its own invoice paid
+    await expect(p.getByRole('button', { name: /record (manual )?payment/i })).toHaveCount(0);
+    await p.keyboard.press('Escape');
+    await p.reload();
+    await expect(p.getByText('Trial ends').first()).toBeVisible();                 // still on the trial
+    // platform billing administrator confirms the money that arrived
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const ap = await ctx.newPage();
+    await ap.goto('/login');
+    await ap.locator('#email').fill('admin@leadflow.test'); await ap.locator('#password').fill('Admin#Pass2026');
+    await ap.getByRole('button', { name: 'Sign in' }).click();
+    await ap.waitForURL(/\/platform/);
+    await ap.goto('/platform/invoices');
+    await ap.getByLabel('Search invoices').fill(ws.name);
+    await ap.getByRole('button', { name: 'Confirm payment' }).first().click();
+    const dlg = ap.getByRole('dialog');
+    await dlg.getByLabel('Payment reference').fill('BANK-REF-STARTER');
+    await expect(dlg.getByText('Previous expiry')).toBeVisible();                  // previous → new expiry preview
+    await dlg.getByRole('button', { name: /Confirm payment/ }).click();
+    await toast(ap, /Payment confirmed — receipt RC-/);
+    await p.goto('/billing');
     await expect(p.getByRole('heading', { name: 'Starter', exact: true }).first()).toBeVisible();
     await expect(p.getByText('Up to 1,000 leads').first()).toBeVisible();
-    await p.getByRole('button', { name: 'Upgrade to Professional' }).click();
-    await expect(p.getByText('Development / manual payment')).toBeVisible();
-    await p.getByLabel('Payment reference').fill('BANK-REF-123');
-    await p.getByRole('button', { name: 'Record manual payment' }).click();
-    await toast(p, 'Payment recorded');
+    await p.getByRole('tab', { name: /Payments/ }).click();
+    await expect(p.getByText(/^RC-/).first()).toBeVisible();
+    await expect(p.getByText('BANK-REF-STARTER')).toBeVisible();
+    // upgrade again, this time recorded directly from the organization page (3 months, different plan)
+    await ap.goto('/platform/organizations');
+    await ap.getByLabel('Search organizations').fill(ws.name);
+    await ap.getByRole('table').getByText(ws.name).click();
+    await ap.getByRole('tab', { name: 'Billing' }).click();
+    await ap.getByRole('button', { name: /Record payment & extend/ }).click();
+    const d2 = ap.getByRole('dialog');
+    await d2.getByLabel('Plan', { exact: true }).selectOption({ label: 'Professional' });
+    await d2.getByLabel('Amount received').fill('237');
+    await d2.getByLabel('Payment reference').fill('BANK-REF-123');
+    await d2.getByRole('button', { name: '3 months' }).click();
+    await expect(d2.getByText(/new plan starts now/i)).toBeVisible();
+    await d2.getByRole('button', { name: /Confirm payment/ }).click();
+    await toast(ap, /Payment confirmed/);
+    await expect(ap.getByText('BANK-REF-123').first()).toBeVisible();
+    await ctx.close();
+    await p.goto('/billing');
     await expect(p.getByRole('heading', { name: 'Professional', exact: true }).first()).toBeVisible();
-    await expect(p.getByText('Active').first()).toBeVisible();
+    await expect(p.getByText('Active', { exact: true }).first()).toBeVisible();
     await p.getByRole('tab', { name: 'Invoices' }).click();
     await expect(p.getByText('Paid').first()).toBeVisible();
     await p.getByRole('button', { name: 'View' }).first().click();
-    await expect(p.getByText('Manually recorded (development)')).toBeVisible();
+    await expect(p.getByText('Bank transfer')).toBeVisible();
     await p.keyboard.press('Escape');
     // Free plan blocks pro features in the UI and the API
     const r = await api(ws.people.OWNER, ws.id).post('/billing/change-plan', { planCode: 'free', interval: 'MONTHLY' });

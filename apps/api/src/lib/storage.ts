@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { config } from '../config';
 import { log } from './logger';
+import { AppError } from './errors';
 
 /**
  * Object storage for uploaded assets (workspace logos).
@@ -69,7 +70,10 @@ export async function storeLogo(orgId: string, dataUrl: string | null, previous:
   const m = DATA_URL.exec(dataUrl)!;                       // callers validate with validateLogo() first
   const bytes = Buffer.from(m[2]!, 'base64');
   const key = `logos/${orgId}/${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}.${EXT[m[1]!]}`;
-  if (previous !== `${KEY_PREFIX}${key}`) await st.put(key, bytes, `image/${m[1]}`);
+  if (previous !== `${KEY_PREFIX}${key}`) {
+    try { await st.put(key, bytes, `image/${m[1]}`); }
+    catch (e) { log.error('object storage upload failed', { error: (e as Error).message }); throw new AppError(503, 'STORAGE_UNAVAILABLE', 'File storage is temporarily unavailable. Nothing was changed; please try again in a moment.'); }
+  }
   if (previous && previous !== `${KEY_PREFIX}${key}`) await deleteStored(previous);
   return `${KEY_PREFIX}${key}`;
 }
@@ -87,5 +91,6 @@ export const isOwnLogoUrl = (v: string | null | undefined) => !!v && /^\/api\/or
 export async function readStoredLogo(stored: string | null | undefined) {
   const st = getObjectStorage();
   if (!stored?.startsWith(KEY_PREFIX) || !st) return null;
-  return st.get(stored.slice(KEY_PREFIX.length));
+  try { return await st.get(stored.slice(KEY_PREFIX.length)); }
+  catch (e) { log.error('object storage read failed', { error: (e as Error).message }); throw new AppError(503, 'STORAGE_UNAVAILABLE', 'File storage is temporarily unavailable.'); }
 }

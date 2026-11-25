@@ -22,25 +22,27 @@ describe('payments: no provider is configured, and nothing can be marked paid wi
     expect(getPaymentProvider()).toBeNull();
   });
 
-  it('a workspace cannot declare its own invoice paid outside development', async () => {
+  it('a workspace can never declare its own invoice paid or change its expiry — not through the API and not through the database', async () => {
     const owner = await createWorkspace(await signUp('Pay Owner'), `Pay ${uniq()}`);
     const inv = await openInvoice(owner);
-    const original = config.devTools;
-    (config as { devTools: boolean }).devTools = false;     // as in production
-    try {
-      const r = await owner.post(`/billing/invoices/${inv.id}/record-payment`, { reference: 'I-PROMISE-I-PAID' });
-      expect(r.status).toBe(403); expect(r.body.error.code).toBe('SELF_PAYMENT_DISABLED');
-      expect((await owner.get('/organizations/current')).body.data.billing.selfServiceManualPayment).toBe(false);
-    } finally { (config as { devTools: boolean }).devTools = original; }
+    // no tenant endpoint exists any more (even in development)
+    expect((await owner.post(`/billing/invoices/${inv.id}/record-payment`, { reference: 'I-PROMISE-I-PAID' })).status).toBe(404);
+    expect((await owner.post(`/platform/invoices/${inv.id}/mark-paid`, { method: 'CASH', reference: 'x' })).status).toBe(403);
+    // …and the application's own database role is refused even if code were written that tried
+    const { prisma } = await import('../src/db');
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.org_id', ${owner.orgId!}, true)`;
+      await tx.$executeRaw`UPDATE invoices SET status = 'PAID', paid_at = now() WHERE id = ${inv.id}::uuid`;
+    })).rejects.toThrow(/only be marked paid by platform billing/);
     expect((await ownerPrisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).status).toBe('OPEN');
     expect(await planOf(owner.orgId!)).not.toBe('starter');
   });
 
-  it('platform billing admins can record a payment; a concurrent double recording extends the subscription once', async () => {
+  it('platform billing admins can confirm a payment; concurrent double entry extends the subscription once', async () => {
     const owner = await createWorkspace(await signUp('Pay Owner 2'), `Pay2 ${uniq()}`);
     const inv = await openInvoice(owner);
     const admin = await makePlatformAdmin('BILLING_ADMIN');
-    const rs = await Promise.all(Array.from({ length: 4 }, () => admin.agent.post(`/api/platform/invoices/${inv.id}/mark-paid`).send({ reference: 'BANK-1' })));
+    const rs = await Promise.all(Array.from({ length: 4 }, () => admin.agent.post(`/api/platform/invoices/${inv.id}/mark-paid`).send({ method: 'BANK_TRANSFER', reference: 'BANK-1' })));
     expect(rs.filter((r) => r.status === 200)).toHaveLength(1);
     expect(rs.filter((r) => r.status === 409)).toHaveLength(3);
     const events = await ownerPrisma.subscriptionEvent.findMany({ where: { organizationId: owner.orgId!, type: { in: ['PLAN_CHANGED', 'RENEWED'] } } });
@@ -58,7 +60,7 @@ describe('settling invoices from provider events (adapter contract, exercised wi
     expect(results.filter((r) => r.outcome === 'APPLIED')).toHaveLength(1);
     expect(results.filter((r) => r.outcome === 'IGNORED')).toHaveLength(4);
     const after = await ownerPrisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
-    expect(after.status).toBe('PAID'); expect(after.paymentMethod).toBe('PROVIDER_TESTPAY'); expect(after.paymentReference).toBe(e.providerPaymentId);
+    expect(after.status).toBe('PAID'); expect(after.paymentMethod).toBe('OTHER'); expect(after.paymentReference).toBe(`testpay:${e.providerPaymentId}`);
     expect(await planOf(owner.orgId!)).toBe('starter');
     expect(await ownerPrisma.paymentEvent.count({ where: { provider: 'testpay', eventId: e.eventId } })).toBe(1);
     // a different event for the already-paid invoice changes nothing

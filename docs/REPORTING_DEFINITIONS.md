@@ -21,4 +21,10 @@ All dashboards and reports are computed server-side from live data by `apps/api/
 | Lead → won | Won leads ÷ leads created, per source |
 | Salesperson performance | Per member: leads received (created in range & assigned), contacted + rate, avg response, follow-ups completed, deals won/lost, conversion, won value, open deals |
 
-Reports: Lead Generation · Lead Source Performance · Assignment · Contact Performance · Follow-up · Pipeline · Conversion · Lost Lead · Salesperson Performance · Lead Aging · Response Time. Each supports the date presets (today … this year, custom), salesperson, source and pipeline filters and CSV / Excel export (plan feature `advanced_reports`, permission `reports.export`). CSV cells are protected against formula injection.
+| Lead status report | Leads **created in the range** grouped by current status (NEW/CONTACTED/QUALIFIED/CONVERTED/LOST) with share, unassigned, contacted and average age; sums to *Total leads* of the lead-generation report |
+| Activity report | Per active member: logged calls, emails, WhatsApp, meetings and notes with `occurred_at` in the range, plus distinct leads touched (agents without `activity.view_all` see only themselves); calls/emails/meetings equal the same columns of Contact Performance |
+| Task performance | Per assignee: tasks **due in the range** (canceled excluded), completed, on time (completed at or before due), overdue (open and past due), upcoming, high-priority open, completion rate and on-time rate (agents without `tasks.view_all` see only their own) |
+| Assignment report | Counts assignment **events** (`lead_assignments`) made in the range, by method (manual / rule / round-robin / automation), including assignments of leads archived later |
+| Deals of archived leads | Excluded from every pipeline, forecast and dashboard figure |
+
+Reports: Lead Generation · Lead Source Performance · Assignment · Contact Performance · Follow-up · Pipeline · Conversion · Lost Lead · Salesperson Performance · Lead Aging · Response Time · Lead Status · Activity · Task Performance (14). Each supports the date presets (today … this year, custom), salesperson, source and pipeline filters and CSV / Excel export (plan feature `advanced_reports`, permission `reports.export`). CSV cells are protected against formula injection.

@@ -35,6 +35,19 @@ Every log line is JSON with `time, level, msg, requestId, service` (+ `userId`, 
 
 **Leaked secret** — rotate in the secret manager and redeploy. Rotate DB role passwords by changing `APP_DB_PASSWORD`/`PLATFORM_DB_PASSWORD`, re-running `npm run db:migrate`, then updating the connection URLs; sessions stay valid. Revoke all sessions: `UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL;`.
 
+## Manual billing
+Who: platform `SUPER_ADMIN` or `BILLING_ADMIN` (*Platform → Organizations → workspace → Billing*; all payments at *Platform → Invoices*). Nothing is ever paid or extended automatically.
+* **Confirm a payment**: verify the money arrived (bank statement/cash book) → choose plan and extension (1/3/6/12 months or custom days) → check the preview (*previous expiry → new expiry*, base used) → enter the **payment reference** and amount received → confirm. A repeated submission with the same reference/idempotency key is rejected, not applied twice.
+* **Amount differs from the invoice**: the form refuses it unless "allow amount mismatch" is ticked and explained in the note.
+* **Extend without payment** (goodwill/support): the separate *Extend* action (reason required); it is audited and appears in the history as such.
+* **Mistaken entry**: *Reverse* the **latest** payment with a reason (restores the previous plan/period/status). Only the most recent payment can be reversed, and only while the subscription has not been changed since (otherwise the API answers `NOT_REVERSIBLE`: record a correction instead).
+* **Customer says they paid but nothing changed**: look up the reference in *Platform → Invoices → Payments*; if absent, the payment was never confirmed. Owners can only see invoices, receipts and expiry.
+* **Audit**: every confirmation/reversal writes `subscription_events` (workspace history) and an audit log entry with the administrator.
+* **Expiry**: running → `PAST_DUE` with a 7-day grace (full access) → `EXPIRED` (read-only, billing reachable) → a confirmed payment restores access. No data is deleted at any stage.
+
+## Handing over a team member's work
+Deactivating or removing a member opens *Hand over work*: choose a successor for their open leads, deals, follow-ups and tasks, or explicitly release leads/tasks/deals to nobody (follow-ups then come to you). The operation is one transaction; assignment history records it. Nothing is orphaned silently.
+
 ## Routine tasks
 * Weekly: review failed jobs, `outbound_emails` failures, `npm audit` (CI should run it), database growth (`activities`, `audit_logs`, `notifications` are append-heavy).
 * Monthly: restore drill from the latest logical dump into staging + `npm run db:verify`.

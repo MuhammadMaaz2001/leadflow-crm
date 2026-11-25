@@ -24,7 +24,7 @@ function whereFrom(ctx: Parameters<typeof oppScope>[0], f: z.infer<typeof filter
   if (f.ownerId?.length) and.push({ ownerId: { in: f.ownerId } });
   if (f.closeFrom) and.push({ expectedCloseDate: { gte: f.closeFrom } });
   if (f.closeTo) and.push({ expectedCloseDate: { lte: f.closeTo } });
-  return { organizationId: ctx.orgId, archivedAt: null, ...(f.pipelineId ? { pipelineId: f.pipelineId } : {}), ...(f.stageId ? { stageId: f.stageId } : {}), ...(f.leadId ? { leadId: f.leadId } : {}), AND: and };
+  return { organizationId: ctx.orgId, archivedAt: null, ...(f.pipelineId ? { pipelineId: f.pipelineId } : {}), ...(f.stageId ? { stageId: f.stageId } : {}), ...(f.leadId ? { leadId: f.leadId } : { lead: { archivedAt: null, mergedIntoId: null } }), AND: and };
 }
 
 const oppInclude = {

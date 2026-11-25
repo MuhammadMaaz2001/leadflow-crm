@@ -46,8 +46,14 @@ The seed creates 42 + 34 realistic leads, opportunities across all stages, follo
 ## Email verification in development
 There is no email provider. Every outgoing email (verification, invitation, password reset) is stored in `outbound_emails` and shown at **/dev/mailbox**; the registration screen also shows a "Verify my email now" link. In production (`NODE_ENV=production`) the mailbox, dev links and the dev scheduler endpoint are disabled.
 
-## Payments (no processor, by design)
-Billing is an internal system: plans, trials, limits, invoices, grace periods and expiry all work, but **no payment is ever simulated as successful**. An invoice becomes `PAID` only when an authorised person records a payment reference (`MANUAL_DEV` for the workspace owner, `MANUAL_PLATFORM` for a billing admin). The UI labels this clearly as a development / manual mechanism, and the action is audit-logged.
+## Payments — manual billing only (no payment processor, by design)
+Plans, trials, limits, invoices, grace periods and expiry all work, but **no payment is ever simulated as successful and no online gateway is integrated**.
+A **platform billing administrator** (`SUPER_ADMIN` / `BILLING_ADMIN`) records a payment that was received *outside* the system (bank transfer, cash, cheque, …) under
+*Platform → Workspace → Billing*: they pick the plan and the extension (**1 / 3 / 6 / 12 months or a custom number of days**), see the **previous and new expiry** in a preview, add a
+reference and notes, and confirm. Subscription, invoice, receipt, history and audit entry are written in **one transaction** (row lock + idempotency key + unique reference),
+the latest payment can be reversed with a reason, and every payment/extension is listed in the workspace's history. Workspace owners can *see* invoices, receipts and their
+expiry but **cannot mark anything paid or extend** — the API has no such endpoint and database triggers refuse it from the tenant role. The extension policy is in
+[ARCHITECTURE.md](ARCHITECTURE.md#subscriptions--billing); procedures are in [docs/RUNBOOK.md](docs/RUNBOOK.md#manual-billing).
 
 ## Commands
 

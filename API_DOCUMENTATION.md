@@ -78,11 +78,11 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | DELETE | `/api/lost-reasons/{id}` | org | settings.manage | Delete or deactivate lost reason |
 | GET | `/api/tags` | org | — | List tag |
 | POST | `/api/tags` | org | leads.update | Create tag |
-| PATCH | `/api/tags/{id}` | org | leads.update | Update tag |
-| DELETE | `/api/tags/{id}` | org | leads.update | Delete or deactivate tag |
+| PATCH | `/api/tags/{id}` | org | settings.manage | Update tag |
+| DELETE | `/api/tags/{id}` | org | settings.manage | Delete or deactivate tag |
 | GET | `/api/custom-fields` | org | — | List custom lead fields |
 | POST | `/api/custom-fields` | org | settings.manage; feature: custom_fields | Create a custom field |
-| PATCH | `/api/custom-fields/{id}` | org | settings.manage; feature: custom_fields | Update a custom field |
+| PATCH | `/api/custom-fields/{id}` | org | settings.manage; feature: custom_fields | Update a custom field (the type and key never change; options in use cannot be removed) |
 | DELETE | `/api/custom-fields/{id}` | org | settings.manage | Deactivate a custom field (values are preserved on leads) |
 
 ### Leads
@@ -107,6 +107,10 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | GET | `/api/leads/{id}/activities` | org | — | Chronological activity timeline |
 | POST | `/api/leads/{id}/activities` | org | leads.update | Manually log a call / email / WhatsApp / meeting / note |
 | GET | `/api/leads/{id}/followups` | org | — | Follow-up history for a lead |
+| GET | `/api/lead-views` | org | — | Saved lead views: your own and the ones shared with the workspace |
+| POST | `/api/lead-views` | org | — | Save the current lead filters as a view (sharing needs the permission to assign leads) |
+| PATCH | `/api/lead-views/{id}` | org | — | Rename a view or change whether it is shared |
+| DELETE | `/api/lead-views/{id}` | org | — | Delete a view (its owner, or anyone who can manage workspace settings) |
 
 ### Pipelines
 
@@ -207,7 +211,6 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | POST | `/api/billing/cancel` | org | billing.manage | Cancel at period end |
 | POST | `/api/billing/reactivate` | org | billing.manage | Undo a scheduled cancellation / downgrade; for an expired workspace issue a renewal invoice |
 | GET | `/api/billing/invoices/{id}` | org | billing.view \| billing.manage | Invoice detail |
-| POST | `/api/billing/invoices/{id}/record-payment` | org | billing.manage | DEVELOPMENT / MANUAL: record that an invoice was paid outside the system |
 
 ### Reports & Analytics
 
@@ -234,9 +237,15 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | PATCH | `/api/platform/plans/{id}` | platform | — | Update a plan (existing subscribers pick up new limits immediately) |
 | DELETE | `/api/platform/plans/{id}` | platform | — | Retire a plan (hidden for new subscriptions) |
 | GET | `/api/platform/subscriptions` | platform | — | Subscription monitoring |
-| POST | `/api/platform/subscriptions/{orgId}/adjust` | platform | — | Manual subscription adjustment (audited) |
+| POST | `/api/platform/subscriptions/{orgId}/adjust` | platform | — | Administrative override of plan / status (no payment, no expiry change — use /extend or /payments for those). Audited. |
+| GET | `/api/platform/organizations/{id}/billing` | platform | — | Workspace billing: plan, period, invoices, payments/receipts and the full subscription history |
+| POST | `/api/platform/subscriptions/{orgId}/payments/preview` | platform | — | Preview the previous and new expiry of a payment confirmation (writes nothing) |
+| POST | `/api/platform/subscriptions/{orgId}/payments` | platform | — | MANUAL: confirm a payment received outside the system; atomically marks/creates the invoice, issues a receipt and extends the subscription |
+| POST | `/api/platform/subscriptions/{orgId}/extend` | platform | — | Extend a subscription WITHOUT a payment (goodwill / correction). Requires a reason; audited. |
+| POST | `/api/platform/payments/{id}/reverse` | platform | — | Reverse the most recent payment of a workspace (mistaken entry): restores the previous expiry |
+| GET | `/api/platform/payments` | platform | — | All confirmed payments |
 | GET | `/api/platform/invoices` | platform | — | Invoices across organizations |
-| POST | `/api/platform/invoices/{id}/mark-paid` | platform | — | MANUAL: record a payment received outside the system |
+| POST | `/api/platform/invoices/{id}/mark-paid` | platform | — | MANUAL: confirm a payment received outside the system for this invoice (extends the subscription) |
 | POST | `/api/platform/invoices/{id}/mark-failed` | platform | — | Record a failed payment |
 | POST | `/api/platform/invoices/{id}/void` | platform | — | Void an unpaid invoice |
 | GET | `/api/platform/usage` | platform | — | Usage vs plan limits per organization |

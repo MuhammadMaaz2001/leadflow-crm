@@ -5,6 +5,8 @@ import { sendEmail } from '../../lib/email';
 import { config } from '../../config';
 import { audit } from '../../lib/audit';
 import { assertSeatCapacity } from '../subscriptions/service';
+import { assertActiveMember } from '../leads/service';
+import { usersById } from '../../lib/users';
 import type { Ctx, SessionUser } from '../../http';
 
 /** No privilege escalation: you can only grant roles whose permissions you hold yourself (owners can grant anything). */
@@ -72,4 +74,47 @@ export async function ensureNotLastOwner(ctx: Ctx, membershipId: string) {
     if (owners <= 1) throw new AppError(409, 'LAST_OWNER', 'A workspace must keep at least one active owner.');
   }
   return target;
+}
+
+export interface Workload { leads: number; followUps: number; tasks: number; opportunities: number }
+export async function openWorkload(orgId: string, userId: string): Promise<Workload> {
+  const [leads, followUps, tasks, opportunities] = await Promise.all([
+    db().lead.count({ where: { organizationId: orgId, assignedToId: userId, archivedAt: null, mergedIntoId: null } }),
+    db().followUp.count({ where: { organizationId: orgId, assignedToId: userId, status: 'PENDING' } }),
+    db().task.count({ where: { organizationId: orgId, assignedToId: userId, status: { in: ['TODO', 'IN_PROGRESS'] } } }),
+    db().opportunity.count({ where: { organizationId: orgId, ownerId: userId, status: 'OPEN', archivedAt: null } }),
+  ]);
+  return { leads, followUps, tasks, opportunities };
+}
+
+/**
+ * Hands the open work of a member who is being deactivated to another ACTIVE member of the same workspace (or releases it).
+ * History is kept: every moved lead gets an assignment record (method TRANSFER) and a timeline entry. Done with set-based statements
+ * so a member with thousands of leads does not turn into thousands of round trips. Closed/archived records are left alone.
+ */
+export async function transferWorkload(ctx: Ctx, fromUserId: string, to: string | 'UNASSIGN') {
+  const toId = to === 'UNASSIGN' ? null : to;
+  if (toId) { if (toId === fromUserId) throw new AppError(400, 'INVALID_TRANSFER', 'Choose a different member to take over the work.'); await assertActiveMember(ctx, toId, 'New owner'); }
+  const now = new Date();
+  const orgId = ctx.orgId;
+  const leads = await db().lead.findMany({ where: { organizationId: orgId, assignedToId: fromUserId, archivedAt: null, mergedIntoId: null }, select: { id: true } });
+  const ids = leads.map((l) => l.id);
+  const names = await usersById([fromUserId, toId]);
+  const title = toId ? `Reassigned from ${names.get(fromUserId)?.name ?? 'a former member'} to ${names.get(toId)?.name ?? 'a colleague'}` : `Unassigned (${names.get(fromUserId)?.name ?? 'a former member'} was deactivated)`;
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    await db().lead.updateMany({ where: { id: { in: chunk }, organizationId: orgId, assignedToId: fromUserId }, data: { assignedToId: toId, assignedAt: toId ? now : null } });
+    await db().leadAssignment.createMany({ data: chunk.map((leadId) => ({ organizationId: orgId, leadId, fromUserId, toUserId: toId, assignedById: ctx.userId, method: 'TRANSFER', note: 'Member deactivated' })) });
+    await db().activity.createMany({ data: chunk.map((leadId) => ({ organizationId: orgId, leadId, type: 'LEAD_REASSIGNED' as const, actorId: ctx.userId, title, metadata: { from: fromUserId, to: toId, method: 'TRANSFER' } })) });
+  }
+  // follow-ups always need an owner: with "unassign" they go to the administrator performing the deactivation
+  const followUps = await db().followUp.updateMany({ where: { organizationId: orgId, assignedToId: fromUserId, status: 'PENDING' }, data: { assignedToId: toId ?? ctx.userId } });
+  const tasks = await db().task.updateMany({ where: { organizationId: orgId, assignedToId: fromUserId, status: { in: ['TODO', 'IN_PROGRESS'] } }, data: { assignedToId: toId } });
+  const opportunities = await db().opportunity.updateMany({ where: { organizationId: orgId, ownerId: fromUserId, status: 'OPEN', archivedAt: null }, data: { ownerId: toId } });
+  const moved = { leads: ids.length, followUps: followUps.count, tasks: tasks.count, opportunities: opportunities.count };
+  if (toId && (moved.leads || moved.followUps || moved.tasks || moved.opportunities)) {
+    const { notify } = await import('../notifications/service');
+    await notify({ userIds: [toId], type: 'LEAD_REASSIGNED', title: `${names.get(fromUserId)?.name ?? 'A colleague'}'s work was handed to you`, body: `${moved.leads} leads, ${moved.followUps} follow-ups, ${moved.tasks} tasks, ${moved.opportunities} deals`, link: '/leads', dedupeKey: `transfer:${fromUserId}:${now.getTime()}` });
+  }
+  return moved;
 }

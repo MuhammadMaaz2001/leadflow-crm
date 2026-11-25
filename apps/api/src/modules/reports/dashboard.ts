@@ -80,7 +80,7 @@ export async function buildDashboard(ctx: Ctx, f: FilterCtx) {
   const pipeline = f.pipelineId
     ? await db().pipeline.findFirst({ where: { id: f.pipelineId, organizationId: ctx.orgId, archivedAt: null } })
     : await db().pipeline.findFirst({ where: { organizationId: ctx.orgId, isDefault: true, archivedAt: null } });
-  const pipeWhere = Prisma.sql`o.organization_id = ${ctx.orgId}::uuid AND o.archived_at IS NULL${f.assigneeId ? Prisma.sql` AND o.owner_id = ${f.assigneeId}::uuid` : Prisma.empty}${f.sourceId ? Prisma.sql` AND l.source_id = ${f.sourceId}::uuid` : Prisma.empty}`;
+  const pipeWhere = Prisma.sql`o.organization_id = ${ctx.orgId}::uuid AND o.archived_at IS NULL AND l.archived_at IS NULL AND l.merged_into_id IS NULL${f.assigneeId ? Prisma.sql` AND o.owner_id = ${f.assigneeId}::uuid` : Prisma.empty}${f.sourceId ? Prisma.sql` AND l.source_id = ${f.sourceId}::uuid` : Prisma.empty}`;
   const stagesDist = pipeline ? await db().$queryRaw<Array<{ id: string; name: string; color: string; kind: string; position: number; count: bigint; value: bigint | null }>>`
     SELECT st.id, st.name, st.color, st.kind::text, st.position, count(o.id) AS count, COALESCE(sum(o.value), 0) AS value
     FROM pipeline_stages st

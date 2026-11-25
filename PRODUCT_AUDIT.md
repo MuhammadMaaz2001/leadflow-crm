@@ -4,6 +4,8 @@
 
 Audit date: 2026-11-24. Scope: UI/UX, functional behaviour, security, database, SaaS/role behaviour and a final verification pass, performed **without changing the architecture** (same monorepo, same request pipeline, same tenant-isolation model). Everything listed as "verified" was executed in this environment; items that were not verified are listed under [Not verified / accepted risks](#not-verified--accepted-risks).
 
+> **Update 2026-11-25 (feature-completion phase):** a third audit pass re-verified every module against the code and database and filled the gaps it found — manual billing, server-side saved views, hand-over on deactivation, automation actions/safety, three more reports, task reminders, plan-limit and pipeline integrity checks. The row-by-row result is **[FEATURE_MATRIX.md](FEATURE_MATRIX.md)**; the section below lists what was found and fixed in that pass.
+
 > **This document does not declare the product production-ready.** It records what was tested, what was fixed and what is still open. See the last section before deploying.
 
 ## 1. Method
@@ -131,3 +133,22 @@ These are open. None is hidden by the test results above.
 ## 6. Verdict
 
 The code base passes every automated check listed in §4 in this environment, and the defects found by the audit (notably the non-persistent login lockout, role-grant escalation, cross-organization assignee gaps and the kanban drop-target conflict) are fixed and covered by tests. That is **not** a statement that the product is production-ready: the items in §5 — in particular real email/payment adapters, a dependency audit, load testing and an operational/deployment review — still have to be done and signed off before a production launch.
+
+## 7. Feature-completion pass (2026-11-25)
+Method: for each area requested (leads, pipeline, team/assignment, activities/tasks/notifications, automation, reports, billing, plan limits, security, runtime, operations, frontend) the code and database constraints were read, then **behaviour tests with deterministic data** were written *before* trusting any earlier statement (`manual-billing`, `leads-complete`, `assignment`, `automation-engine`, `reports-verify`, `plan-enforcement`, `pipeline-integrity`, `activity-tasks` — 63 new API tests in 8 files (suite total 134 → 198), plus the Playwright `completeness` spec). Failures were fixed in the product, not in the tests.
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| 1 | The workspace owner could record a payment for their own invoice (`MANUAL_DEV`) — in production blocked only by configuration, in development open | **High** (billing bypass) | Tenant endpoint removed; only platform `SUPER_ADMIN`/`BILLING_ADMIN` can confirm payments; DB triggers `guard_invoice_paid` / `guard_subscription_changes` and read-only RLS on `payments` enforce it even if the API had a bug; test proves a tenant-role SQL write fails |
+| 2 | No complete manual-billing workflow (no extension choice, no previous/new expiry, no receipts, history or reversal, no protection against double submission) | High (missing core feature) | `manual-billing.ts` + platform UI; row-locked atomic transaction, idempotency key, unique reference, calendar-month math in workspace timezone |
+| 3 | Deactivating a member left their leads/deals/follow-ups/tasks owned by an inactive user | Medium | Hand-over (or explicit release) in the same transaction, with assignment history |
+| 4 | Agents could rename or delete tags; custom-field values were silently truncated or coerced | Medium | Permission checks; strict validation with clear errors; definition locks once data exists |
+| 5 | CSV/Excel import and export silently stopped at the cap | Medium (silent data loss) | Explicit error with the cap; custom fields included in exports |
+| 6 | Saved views existed only in one browser | Low–Medium | Server-side private/shared views |
+| 7 | Failed automation executions did not count attempts; automation could re-trigger automation; no volume bound | Medium | Attempts counted, `suppressTriggers`, hourly budget, rule cap, archived leads skipped |
+| 8 | Task due/overdue notices missing or suppressed by the reminder flag | Medium | Rewritten reminders with `overdue_notified_at` and de-duplication |
+| 9 | Dashboard pipeline counted deals of archived leads | Medium (wrong KPI) | Excluded; tests compare dashboard and every report with raw-row calculations |
+| 10 | `/platform/health` showed 0 migrations and no worker/provider information; mobile overlap on the platform billing card | Low | Fixed; Playwright mobile assertion |
+| 11 | The development seed inserted paid invoices through the tenant role | Low (dev tooling) | Seed writes paid invoices through the platform role, like production billing |
+
+Still **not** verified or built: see [FEATURE_MATRIX.md](FEATURE_MATRIX.md) (🔬 / ◑ / ✗ / ⛔ rows) and the blockers in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). This pass changes nothing about the verdict: **not declared production-ready**.

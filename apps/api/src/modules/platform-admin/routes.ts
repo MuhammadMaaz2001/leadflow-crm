@@ -1,4 +1,4 @@
-import { planAdminSchema, recordPaymentSchema } from '@leadflow/shared';
+import { extendSubscriptionSchema, manualPaymentSchema, planAdminSchema, reversePaymentSchema } from '@leadflow/shared';
 import type { Prisma } from '@leadflow/database';
 import { z } from 'zod';
 import os from 'node:os';
@@ -6,7 +6,7 @@ import { platformPrisma as pdb, prisma } from '../../db';
 import { AppError, notFound } from '../../lib/errors';
 import { defineRoutes, paged, created, type SessionUser } from '../../http';
 import { pageMeta, paginate, pageQuery } from '../../lib/pagination';
-import { applyPayment } from '../subscriptions/lifecycle';
+import { confirmManualPayment, extendWithoutPayment, previewManualPayment, publicPayment, reversePayment } from '../subscriptions/manual-billing';
 import { periodEnd } from '../subscriptions/service';
 import { queueCounts } from '../../lib/queue';
 import { checkRedis, workerStatus } from '../../lib/health';
@@ -153,7 +153,7 @@ platform.get('/subscriptions', { auth: 'platform', query: z.object({ ...pageQuer
   const [total, rows] = await Promise.all([pdb.subscription.count({ where }), pdb.subscription.findMany({ where, include: { plan: true, organization: { select: { id: true, name: true, status: true } } }, orderBy: { currentPeriodEnd: 'asc' }, ...paginate(query) })]);
   return paged(rows.map((s) => ({ id: s.id, organization: s.organization, plan: { code: s.plan.code, name: s.plan.name }, interval: s.interval, status: s.status, trialEndsAt: s.trialEndsAt, currentPeriodEnd: s.currentPeriodEnd, graceEndsAt: s.graceEndsAt, cancelAtPeriodEnd: s.cancelAtPeriodEnd })), pageMeta(query, total));
 });
-platform.post('/subscriptions/:orgId/adjust', { auth: 'platform', platformRoles: [...BILLING], body: z.object({ planCode: z.string().optional(), interval: z.enum(['MONTHLY', 'YEARLY']).optional(), status: z.enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'EXPIRED', 'CANCELED']).optional(), extendDays: z.coerce.number().int().min(1).max(365).optional(), note: z.string().max(300).optional() }), summary: 'Manual subscription adjustment (audited)' }, async ({ user, params, body }) => {
+platform.post('/subscriptions/:orgId/adjust', { auth: 'platform', platformRoles: [...BILLING], body: z.object({ planCode: z.string().optional(), interval: z.enum(['MONTHLY', 'YEARLY']).optional(), status: z.enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'EXPIRED', 'CANCELED']).optional(), note: z.string().trim().min(5, 'Explain the reason for this override').max(300) }), summary: 'Administrative override of plan / status (no payment, no expiry change — use /extend or /payments for those). Audited.' }, async ({ user, params, body }) => {
   const sub = await pdb.subscription.findUnique({ where: { organizationId: params.orgId }, include: { plan: true } });
   if (!sub) throw notFound('Subscription');
   const data: Prisma.SubscriptionUncheckedUpdateInput = {};
@@ -162,15 +162,51 @@ platform.post('/subscriptions/:orgId/adjust', { auth: 'platform', platformRoles:
   const interval = body.interval ?? sub.interval;
   if (body.interval) data.interval = body.interval;
   if (body.status) { data.status = body.status; if (body.status === 'ACTIVE' || body.status === 'TRIALING') data.graceEndsAt = null; }
-  if (body.extendDays) {
-    const base = sub.status === 'TRIALING' && sub.trialEndsAt ? sub.trialEndsAt : sub.currentPeriodEnd;
-    const end = new Date(Math.max(base.getTime(), Date.now()) + body.extendDays * 86_400_000);
-    data.currentPeriodEnd = end; if (sub.status === 'TRIALING') data.trialEndsAt = end;
-  } else if (body.planCode && toPlan !== 'free') { data.currentPeriodStart = new Date(); data.currentPeriodEnd = periodEnd(new Date(), interval); }
+  if (body.planCode && toPlan !== 'free' && toPlan !== sub.plan.code) { data.currentPeriodStart = new Date(); data.currentPeriodEnd = periodEnd(new Date(), interval); }
   const u = await pdb.subscription.update({ where: { id: sub.id }, data });
-  await pdb.subscriptionEvent.create({ data: { organizationId: sub.organizationId, type: 'MANUAL_ADJUSTMENT', fromPlanCode: sub.plan.code, toPlanCode: toPlan, status: u.status, actorId: user.id, note: body.note ?? 'Adjusted by platform administrator' } });
+  await pdb.subscriptionEvent.create({ data: { organizationId: sub.organizationId, type: 'MANUAL_ADJUSTMENT', fromPlanCode: sub.plan.code, toPlanCode: toPlan, status: u.status, actorId: user.id, note: `Override by platform administrator (status ${sub.status} → ${u.status}; expiry ${sub.currentPeriodEnd.toISOString().slice(0, 10)} → ${u.currentPeriodEnd.toISOString().slice(0, 10)}). Reason: ${body.note}` } });
   await paudit(user, 'subscription.adjusted', 'subscription', sub.id, { ...body }, sub.organizationId);
   return { status: u.status };
+});
+
+// ── Manual billing workflow (the only active payment workflow) ──
+platform.get('/organizations/:id/billing', { auth: 'platform', summary: 'Workspace billing: plan, period, invoices, payments/receipts and the full subscription history' }, async ({ params }) => {
+  const sub = await pdb.subscription.findUnique({ where: { organizationId: params.id }, include: { plan: true, organization: { select: { id: true, name: true, timezone: true, currency: true, status: true } } } });
+  if (!sub) throw notFound('Subscription');
+  const [invoices, payments, events, plans] = await Promise.all([
+    pdb.invoice.findMany({ where: { organizationId: params.id }, orderBy: { issuedAt: 'desc' }, take: 200, include: { plan: { select: { name: true, code: true } } } }),
+    pdb.payment.findMany({ where: { organizationId: params.id }, orderBy: { createdAt: 'desc' }, take: 200 }),
+    pdb.subscriptionEvent.findMany({ where: { organizationId: params.id }, orderBy: { createdAt: 'desc' }, take: 200 }),
+    pdb.subscriptionPlan.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
+  ]);
+  const actorIds = [...new Set([...payments.map((p) => p.recordedById), ...events.map((e) => e.actorId).filter((x): x is string => !!x)])];
+  const actors = new Map((await pdb.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true, email: true } })).map((u) => [u.id, u]));
+  return {
+    organization: sub.organization,
+    subscription: { id: sub.id, status: sub.status, interval: sub.interval, plan: { code: sub.plan.code, name: sub.plan.name, currency: sub.plan.currency }, currentPeriodStart: sub.currentPeriodStart, currentPeriodEnd: sub.currentPeriodEnd, trialEndsAt: sub.trialEndsAt, graceEndsAt: sub.graceEndsAt, cancelAtPeriodEnd: sub.cancelAtPeriodEnd },
+    plans: plans.map((p) => ({ code: p.code, name: p.name, currency: p.currency, priceMonthly: num(p.priceMonthly), priceYearly: num(p.priceYearly) })),
+    invoices: invoices.map((i) => ({ ...i, amount: num(i.amount) })),
+    payments: payments.map((p) => ({ ...publicPayment(p), internalNote: p.internalNote, recordedBy: actors.get(p.recordedById) ?? null, invoiceGenerated: p.invoiceGenerated, reversedAt: p.reversedAt, reversalReason: p.reversalReason, previousStatus: p.previousStatus })),
+    events: events.map((e) => ({ ...e, actor: e.actorId ? actors.get(e.actorId) ?? null : null })),
+  };
+});
+platform.post('/subscriptions/:orgId/payments/preview', { auth: 'platform', platformRoles: [...BILLING], body: manualPaymentSchema.pick({ invoiceId: true, planCode: true, amount: true, currency: true, extension: true, receivedAt: true, allowAmountMismatch: true, internalNote: true }), summary: 'Preview the previous and new expiry of a payment confirmation (writes nothing)' }, async ({ params, body }) => previewManualPayment(params.orgId!, body));
+platform.post('/subscriptions/:orgId/payments', { auth: 'platform', platformRoles: [...BILLING], body: manualPaymentSchema, summary: 'MANUAL: confirm a payment received outside the system; atomically marks/creates the invoice, issues a receipt and extends the subscription' }, async ({ user, params, body }) => {
+  const r = await confirmManualPayment(user, params.orgId!, body);
+  return { duplicate: r.duplicate, payment: { id: r.payment.id, receiptNumber: r.payment.receiptNumber, newExpiry: r.payment.newPeriodEnd, previousExpiry: r.payment.previousPeriodEnd } };
+});
+platform.post('/subscriptions/:orgId/extend', { auth: 'platform', platformRoles: [...BILLING], body: extendSubscriptionSchema, summary: 'Extend a subscription WITHOUT a payment (goodwill / correction). Requires a reason; audited.' }, async ({ user, params, body }) => {
+  const r = await extendWithoutPayment(user, params.orgId!, body.extension, body.reason);
+  return { previousExpiry: r.previousExpiry, newExpiry: r.newExpiry };
+});
+platform.post('/payments/:id/reverse', { auth: 'platform', platformRoles: [...BILLING], body: reversePaymentSchema, summary: 'Reverse the most recent payment of a workspace (mistaken entry): restores the previous expiry' }, async ({ user, params, body }) => {
+  const p = await reversePayment(user, params.id!, body.reason);
+  return { reversed: true, receiptNumber: p.receiptNumber };
+});
+platform.get('/payments', { auth: 'platform', query: z.object({ ...pageQuery, q: z.string().optional(), status: z.enum(['CONFIRMED', 'REVERSED']).optional() }), summary: 'All confirmed payments' }, async ({ query }) => {
+  const where: Prisma.PaymentWhereInput = { ...(query.status ? { status: query.status } : {}), ...(query.q ? { OR: [{ receiptNumber: { contains: query.q, mode: 'insensitive' } }, { reference: { contains: query.q, mode: 'insensitive' } }, { organization: { name: { contains: query.q, mode: 'insensitive' } } }] } : {}) };
+  const [total, rows] = await Promise.all([pdb.payment.count({ where }), pdb.payment.findMany({ where, include: { organization: { select: { id: true, name: true } } }, orderBy: { createdAt: 'desc' }, ...paginate(query) })]);
+  return paged(rows.map((p) => ({ ...publicPayment(p), organization: p.organization, internalNote: p.internalNote })), pageMeta(query, total));
 });
 
 // ── Invoices ──
@@ -179,13 +215,11 @@ platform.get('/invoices', { auth: 'platform', query: z.object({ ...pageQuery, st
   const [total, rows, agg] = await Promise.all([pdb.invoice.count({ where }), pdb.invoice.findMany({ where, include: { organization: { select: { id: true, name: true } }, plan: { select: { name: true } } }, orderBy: { issuedAt: 'desc' }, ...paginate(query) }), pdb.invoice.aggregate({ where, _sum: { amount: true } })]);
   return paged(rows.map((i) => ({ ...i, amount: num(i.amount) })), { ...pageMeta(query, total), totalAmount: num(agg._sum.amount) });
 });
-platform.post('/invoices/:id/mark-paid', { auth: 'platform', platformRoles: [...BILLING], body: recordPaymentSchema, summary: 'MANUAL: record a payment received outside the system' }, async ({ user, params, body }) => {
+platform.post('/invoices/:id/mark-paid', { auth: 'platform', platformRoles: [...BILLING], body: manualPaymentSchema.omit({ invoiceId: true, planCode: true }), summary: 'MANUAL: confirm a payment received outside the system for this invoice (extends the subscription)' }, async ({ user, params, body }) => {
   const inv = await pdb.invoice.findUnique({ where: { id: params.id } });
   if (!inv) throw notFound('Invoice');
-  if (inv.status === 'PAID' || inv.status === 'VOID') throw new AppError(409, 'NOT_PAYABLE', `Invoice is already ${inv.status.toLowerCase()}.`);
-  await pdb.$transaction(async (tx) => { await applyPayment(inv.id, { actorId: user.id, reference: body.reference, method: 'MANUAL_PLATFORM', note: body.note }, tx); });
-  await paudit(user, 'invoice.marked_paid', 'invoice', inv.id, { number: inv.number, reference: body.reference }, inv.organizationId);
-  return { paid: true };
+  const r = await confirmManualPayment(user, inv.organizationId, { ...body, invoiceId: inv.id });
+  return { paid: true, duplicate: r.duplicate, receiptNumber: r.payment.receiptNumber, newExpiry: r.payment.newPeriodEnd };
 });
 platform.post('/invoices/:id/mark-failed', { auth: 'platform', platformRoles: [...BILLING], body: z.object({ reason: z.string().trim().min(3).max(300) }), summary: 'Record a failed payment' }, async ({ user, params, body }) => {
   const inv = await pdb.invoice.findUnique({ where: { id: params.id } });

@@ -17,7 +17,7 @@ type Delegate = {
 };
 
 /** Generic CRUD for simple per-workspace lists (sources, priorities, lost reasons, tags). */
-function lookupCrud(path: string, model: 'leadSource' | 'leadPriority' | 'lostReason' | 'tag', label: string, usage: (orgId: string, id: string) => Promise<number>, writePerm: PermissionKey) {
+function lookupCrud(path: string, model: 'leadSource' | 'leadPriority' | 'lostReason' | 'tag', label: string, usage: (orgId: string, id: string) => Promise<number>, writePerm: PermissionKey, managePerm: PermissionKey = writePerm) {
   const d = () => db()[model] as unknown as Delegate;
   lookups.get(path, { query: z.object({ includeInactive: z.preprocess((v) => v === 'true', z.boolean()).optional() }), summary: `List ${label}` }, async ({ ctx, query }) => {
     const rows = await d().findMany({ where: { organizationId: ctx.orgId, ...(query.includeInactive ? {} : { isActive: true }) }, orderBy: [{ position: 'asc' }, { name: 'asc' }] });
@@ -35,7 +35,7 @@ function lookupCrud(path: string, model: 'leadSource' | 'leadPriority' | 'lostRe
       throw e;
     }
   });
-  lookups.patch(`${path}/:id`, { perm: writePerm, body: lookupSchema.partial(), summary: `Update ${label}` }, async ({ ctx, params, body }) => {
+  lookups.patch(`${path}/:id`, { perm: managePerm, body: lookupSchema.partial(), summary: `Update ${label}` }, async ({ ctx, params, body }) => {
     const row = await d().findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
     if (!row) throw notFound(label);
     try {
@@ -47,7 +47,7 @@ function lookupCrud(path: string, model: 'leadSource' | 'leadPriority' | 'lostRe
       throw e;
     }
   });
-  lookups.delete(`${path}/:id`, { perm: writePerm, summary: `Delete or deactivate ${label}` }, async ({ ctx, params }) => {
+  lookups.delete(`${path}/:id`, { perm: managePerm, summary: `Delete or deactivate ${label}` }, async ({ ctx, params }) => {
     const row = await d().findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
     if (!row) throw notFound(label);
     const used = await usage(ctx.orgId, row.id);
@@ -65,7 +65,7 @@ function lookupCrud(path: string, model: 'leadSource' | 'leadPriority' | 'lostRe
 lookupCrud('/lead-sources', 'leadSource', 'lead source', (o, id) => db().lead.count({ where: { organizationId: o, sourceId: id } }), 'settings.manage');
 lookupCrud('/lead-priorities', 'leadPriority', 'lead priority', (o, id) => db().lead.count({ where: { organizationId: o, priorityId: id } }), 'settings.manage');
 lookupCrud('/lost-reasons', 'lostReason', 'lost reason', (o, id) => db().opportunity.count({ where: { organizationId: o, lostReasonId: id } }), 'settings.manage');
-lookupCrud('/tags', 'tag', 'tag', (o, id) => db().leadTag.count({ where: { organizationId: o, tagId: id } }), 'leads.update');
+lookupCrud('/tags', 'tag', 'tag', (o, id) => db().leadTag.count({ where: { organizationId: o, tagId: id } }), 'leads.update', 'settings.manage'); // anyone who edits leads can create a tag; renaming / deleting a shared tag is a workspace-settings action
 
 // ── Custom fields ──
 lookups.get('/custom-fields', { summary: 'List custom lead fields' }, async ({ ctx }) =>
@@ -84,12 +84,26 @@ lookups.post('/custom-fields', { perm: 'settings.manage', feature: 'custom_field
   await audit(ctx, 'custom_field.created', 'custom_field', row.id, { key });
   return created(row);
 });
-lookups.patch('/custom-fields/:id', { perm: 'settings.manage', feature: 'custom_fields', body: customFieldSchema.partial(), summary: 'Update a custom field' }, async ({ ctx, params, body }) => {
+lookups.patch('/custom-fields/:id', { perm: 'settings.manage', feature: 'custom_fields', body: customFieldSchema.partial(), summary: 'Update a custom field (the type and key never change; options in use cannot be removed)' }, async ({ ctx, params, body }) => {
   const row = await db().customFieldDef.findFirst({ where: { id: params.id, organizationId: ctx.orgId } });
   if (!row) throw notFound('Custom field');
-  const { key: _k, type: _t, ...rest } = body;
+  if (body.type && body.type !== row.type) throw new AppError(409, 'TYPE_LOCKED', 'The type of an existing field cannot be changed because leads already store values in that type. Create a new field instead.');
+  if (body.key && body.key !== row.key) throw new AppError(409, 'KEY_LOCKED', 'The key of an existing field cannot be changed.');
+  const { key: _k, type: _t, options, ...rest } = body;
   void _k; void _t;
-  const updated = await db().customFieldDef.update({ where: { id: row.id }, data: rest });
+  const data: Record<string, unknown> = { ...rest };
+  if (options !== undefined) {
+    if (row.type !== 'SELECT') throw new AppError(400, 'VALIDATION_ERROR', 'Only dropdown fields have options.');
+    const clean = [...new Set(options.map((o) => o.trim()).filter(Boolean))];
+    if (!clean.length) throw new AppError(400, 'VALIDATION_ERROR', 'Dropdown fields need at least one option');
+    const removed = row.options.filter((o) => !clean.some((c) => c.toLowerCase() === o.toLowerCase()));
+    for (const o of removed) {
+      const [{ n }] = await db().$queryRaw<[{ n: bigint }]>`SELECT count(*)::bigint AS n FROM leads WHERE organization_id = ${ctx.orgId}::uuid AND custom_fields ->> ${row.key} = ${o}`;
+      if (n > 0n) throw new AppError(409, 'OPTION_IN_USE', `“${o}” is used by ${n} lead(s). Change those leads first, or keep the option.`);
+    }
+    data.options = clean;
+  }
+  const updated = await db().customFieldDef.update({ where: { id: row.id }, data });
   await audit(ctx, 'custom_field.updated', 'custom_field', row.id);
   return updated;
 });

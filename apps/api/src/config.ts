@@ -46,6 +46,9 @@ export const config = {
   /** Workspaces with at least this many leads get 20 s result caching for list totals, dashboard and reports (0 = never). */
   largeWorkspaceLeads: num(env.LARGE_WORKSPACE_LEADS, 20000),
   cacheTtlSeconds: num(env.CACHE_TTL_SECONDS, 20),
+  /** Safety valve: at most this many automation executions are created per workspace per hour (0 = unlimited). */
+  automationMaxPerHour: num(env.AUTOMATION_MAX_PER_HOUR, 2000),
+  automationMaxRules: num(env.AUTOMATION_MAX_RULES, 50),
   /** Log statements slower than this many ms (0 = off). Recommended in production: 500. */
   slowQueryMs: num(env.SLOW_QUERY_MS, 0),
   /** Swagger UI + /api/openapi.json. Off by default in production. */

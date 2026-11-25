@@ -92,6 +92,16 @@ Nothing that matters is held in process memory, so every tier scales horizontall
 ## Subscriptions & billing
 `free` / `starter` / `professional` plans define lead cap, seat cap and feature flags (import/export, automations, custom pipelines & fields, advanced reports, custom roles, rule assignment). Limits are enforced in services (`assertLeadCapacity`, `assertSeatCapacity`, `requireFeature`). Lifecycle: trial → (unpaid) Free · paid period end → renewal invoice + `PAST_DUE` + 7-day grace → `EXPIRED` (read-only) → payment recorded reactivates. Workspace suspension by platform admins blocks all tenant routes.
 
+### Manual billing (`modules/subscriptions/manual-billing.ts`)
+* Only the **platform** database role can write `payments` (tenants have read-only RLS, no write grant); triggers `guard_invoice_paid` and `guard_subscription_changes` additionally make the tenant role unable to mark an invoice paid, extend `current_period_end`, activate a paid subscription or upgrade a plan, even through a bug in the API.
+* One transaction per confirmation: `SELECT … FOR UPDATE` on the subscription, then payment + receipt number + invoice (settled or generated) + subscription period + `subscription_events` + audit log. Idempotency key and a unique `(reference)` per workspace make double submission harmless; two administrators racing serialize on the lock.
+* **Extension policy** (tested in `manual-billing.test.ts`): (1) same paid plan, still running → extend from the **current expiry**, never from today; (2) same plan expired less than the 7-day grace ago → continue from the old expiry; (3) trial still running → paid period starts when the trial would have ended; (4) otherwise (expired beyond grace, canceled, Free→paid, any plan change) → the new period starts at confirmation, no proration. Months are calendar months in the **workspace timezone** (wall-clock preserved across DST; Jan 31 + 1 month = Feb 28/29); a custom extension is a number of days. The preview endpoint returns exactly what a confirmation would write (previous/new expiry, base used).
+* Reversal undoes only the **latest** non-reversed payment of a workspace (restores the stored previous period/plan/status/grace), requires a reason, and is itself recorded.
+* Plan limits are enforced in services (not only in the UI); expiry/suspension block writes with specific error codes while billing stays reachable; downgrade/expiry never deletes data.
+
+### Automation safety
+Actions run in the same transaction as the execution row (all-or-nothing) under a per-execution row lock; actions executed by automation **do not re-trigger automations** (`suppressTriggers`), a per-workspace hourly execution budget (`AUTOMATION_MAX_PER_HOUR`; excess events are dropped with a warning) and rule cap (`AUTOMATION_MAX_RULES`) bound volume, archived leads are skipped, and failed executions count `attempts` and can be retried manually.
+
 ## Frontend
 * App Router; all workspace pages are client components using TanStack Query. Query keys are namespaced by workspace id (`useT`) so caches never mix tenants; switching workspace clears them.
 * The API client sends `X-Org-Id`; auth uses the first-party cookie via the `/api` rewrite.
@@ -105,4 +115,4 @@ Nothing that matters is held in process memory, so every tier scales horizontall
 | Prisma + hand-written SQL migrations for RLS | Typed access, while policies/roles/constraints stay explicit in reviewable SQL. |
 | Email outbox + provider interface | Delivery state is explicit and retried; the dev mailbox keeps development credential-free; production uses SMTP or fails visibly. |
 | Redis for coordination only | Rate limits, locks and queues are rebuildable; PostgreSQL stays the single system of record. |
-| Manual payment recording | No processor is in scope; nothing is ever shown as paid unless a person records it. |
+| Manual billing by platform admins | No processor is in scope; nothing is ever shown as paid unless a platform administrator confirms a payment received outside the system; enforced in the database, not only in the API. |

@@ -306,6 +306,8 @@ model Organization {
   subscription    Subscription?
   subscriptionEvents SubscriptionEvent[]
   invoices        Invoice[]
+  payments        Payment[]
+  savedViews      SavedView[]
   usageRecords    UsageRecord[]
   auditLogs       AuditLog[]
 
@@ -758,6 +760,7 @@ model Task {
   completedAt    DateTime?  @map("completed_at") @db.Timestamptz(6)
   completedById  String?    @map("completed_by_id") @db.Uuid
   reminderSentAt DateTime?  @map("reminder_sent_at") @db.Timestamptz(6)
+  overdueNotifiedAt DateTime? @map("overdue_notified_at") @db.Timestamptz(6)
   isAutomated    Boolean    @default(false) @map("is_automated")
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -892,6 +895,7 @@ model SubscriptionPlan {
 
   subscriptions Subscription[]
   invoices      Invoice[]
+  payments      Payment[]
 
   @@map("subscription_plans")
 }
@@ -962,9 +966,71 @@ model Invoice {
   organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   plan         SubscriptionPlan? @relation(fields: [planId], references: [id])
 
+  @@unique([id, organizationId], map: "invoices_id_org_unique")
   @@index([organizationId, issuedAt])
   @@index([status])
   @@map("invoices")
+}
+
+/// Saved filter set of the lead list (personal or shared with the workspace).
+model SavedView {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  name           String
+  entity         String   @default("LEAD")
+  query          String   @default("")
+  isShared       Boolean  @default(false) @map("is_shared")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entity])
+  @@map("saved_views")
+}
+
+/// Manually confirmed payment / receipt (written ONLY by the platform role; tenants read their own).
+model Payment {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  invoiceId           String?   @map("invoice_id") @db.Uuid
+  invoiceGenerated    Boolean   @default(false) @map("invoice_generated")
+  receiptNumber       String    @unique @map("receipt_number")
+  status              String    @default("CONFIRMED")
+  amount              Decimal   @db.Decimal(12, 2)
+  currency            String
+  method              String
+  reference           String
+  receivedAt          DateTime  @map("received_at") @db.Timestamptz(6)
+  planId              String?   @map("plan_id") @db.Uuid
+  extensionMonths     Int?      @map("extension_months")
+  extensionDays       Int?      @map("extension_days")
+  previousStatus      String?   @map("previous_status")
+  previousPlanId      String?   @map("previous_plan_id") @db.Uuid
+  previousPeriodStart DateTime? @map("previous_period_start") @db.Timestamptz(6)
+  previousPeriodEnd   DateTime? @map("previous_period_end") @db.Timestamptz(6)
+  previousGraceEndsAt DateTime? @map("previous_grace_ends_at") @db.Timestamptz(6)
+  previousTrialEndsAt DateTime? @map("previous_trial_ends_at") @db.Timestamptz(6)
+  newPeriodStart      DateTime  @map("new_period_start") @db.Timestamptz(6)
+  newPeriodEnd        DateTime  @map("new_period_end") @db.Timestamptz(6)
+  extensionBase       String    @map("extension_base")
+  note                String?
+  internalNote        String?   @map("internal_note")
+  recordedById        String    @map("recorded_by_id") @db.Uuid
+  idempotencyKey      String?   @unique @map("idempotency_key")
+  reversedAt          DateTime? @map("reversed_at") @db.Timestamptz(6)
+  reversedById        String?   @map("reversed_by_id") @db.Uuid
+  reversalReason      String?   @map("reversal_reason")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         SubscriptionPlan? @relation(fields: [planId], references: [id])
+
+  @@index([organizationId, receivedAt(sort: Desc)])
+  @@index([invoiceId, organizationId])
+  @@index([planId])
+  @@map("payments")
 }
 
 /// Idempotency ledger for payment-provider events (a provider event is applied at most once).
