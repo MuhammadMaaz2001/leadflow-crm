@@ -9,7 +9,7 @@ Run a restore drill in a staging environment before launch and after every major
 | Component | Contents | Loss impact | Backup |
 |---|---|---|---|
 | **PostgreSQL** | everything: workspaces, leads, history, billing (**payments, receipts, invoices, subscription history — the only record of manually confirmed payments**), saved views, audit logs, sessions, email outbox, logos (when `STORAGE_PROVIDER=db`) | total | **required** — continuous (PITR) + daily logical dump |
-| **Object storage (S3)** | workspace logos (`logos/<org>/<hash>.<ext>`) | cosmetic: the logo disappears, re-upload fixes it | bucket versioning (+ optional cross-region replication) |
+| **Object storage (S3)** | workspace logos (`logos/<org>/<hash>.<ext>`), **lead attachments** (`attachments/<org>/<lead>/<uuid>.<ext>`), temporary import files (`imports/<org>/<job>.<ext>`) | logos: cosmetic. **Attachments: customer files are lost** (the metadata rows in PostgreSQL then point at nothing). Import files: only an in-flight import is affected | bucket versioning + cross-region replication for `attachments/`; import files need no backup |
 | **Redis** | rate-limit counters, scheduler/lock keys, BullMQ queue, worker heartbeats | **recoverable by design** — see below | persistence optional (`appendonly yes` recommended) |
 | Next.js / API containers | none (stateless) | none | rebuild from git tag |
 
@@ -58,6 +58,13 @@ Leads are soft-deleted (`archived_at`) and merges are reversible only from histo
 ## Object storage
 * Enable **versioning** and a lifecycle rule for non-current versions (30 days).
 * Logos are content-addressed (`<sha256-prefix>.<ext>`); losing the bucket only blanks logos. `organizations.logo_data` keeps `storage:<key>`; re-uploading replaces it.
+
+### Attachments: consistency after a restore
+The database and the bucket are backed up independently, so after restoring one of them reconcile: (1) *rows without objects* — `SELECT id, storage_key FROM lead_attachments WHERE deleted_at IS NULL` then check each key exists (a download of a missing object answers `FILE_MISSING`); (2) *objects without rows* — the scheduler's orphan sweeper deletes unreferenced objects older than `ATTACHMENT_ORPHAN_GRACE_MS` **automatically**, so if you restored an *older database* over a *newer bucket*, pause the worker (or raise the grace period) until you have decided what to keep, otherwise legitimate newer files are treated as orphans and deleted. Never restore the bucket without keeping a copy of the pre-restore state.
+Deleted attachments are removed from the bucket immediately; with bucket versioning they remain recoverable as non-current versions until the lifecycle rule expires them.
+
+### SSO encryption key
+SSO client secrets are encrypted with `SSO_ENCRYPTION_KEY`. Back the key up with the database backup (in the secret manager, separately from the dump). If it is lost the connections stay but their secrets are unreadable (`SSO_SECRET_UNREADABLE`): re-enter the client secret in Settings → Single sign-on. Rotating the key requires re-entering every secret.
 
 ## What was tested here
 * Migrations apply cleanly on an **empty database** — every API test run recreates `leadflow_test` from migrations; the full migration chain also upgrades an existing development database in place (`migrate deploy`).

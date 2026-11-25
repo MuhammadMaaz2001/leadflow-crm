@@ -11,16 +11,21 @@ development environment passes. The items below are *not* verified or not done, 
 |---|---|---|---|
 | B1 | **Nothing has been deployed to a real host.** The `Dockerfile`, `deploy/` files and hosting recipes were written but never built (no Docker daemon here); TLS termination, `TRUST_PROXY` hop count and cookie behaviour behind a real load balancer were not exercised. | First deploy may fail or mis-identify client IPs (rate limiting). | Build the images in CI, deploy to staging, run `check:config`, `db:verify`, the e2e suite against it. |
 | B2 | **SMTP delivery was never run against a real server.** The provider interface, outbox, retries and status tracking are tested with a test double; the nodemailer transport itself is untested here. | Verification / invitation / reset emails are essential. | Send real mail from staging; configure SPF/DKIM/DMARC. |
-| B3 | **S3 adapter tested against an in-process fake S3 only** (no signature verification, one vendor-neutral path-style API). | Logo upload/serve could behave differently on a real provider. | Test against the real bucket (or MinIO) in staging. |
+| B3 | **S3 adapter tested against an in-process fake S3 only** (no signature verification, one vendor-neutral path-style API) — and it now also carries **lead attachments and import files** (get/put/delete/list/stream), not only logos. | Attachments, imports and logos could behave differently on a real provider (listing/pagination, streaming, permissions). | Test against the real bucket (or MinIO) in staging: upload/download/delete an attachment, run a 100k-row import, check the orphan sweeper. |
 | B4 | **Managed PostgreSQL/Redis specifics untested:** TLS (`sslmode`, `rediss://`), PgBouncer, failover, backups/restore drill, PITR. | Recovery plans are only documentation until rehearsed. | Restore drill in staging (docs/BACKUP_RECOVERY.md), then `db:verify`. |
-| B5 | **No two-factor authentication / SSO** for platform administrators or workspace owners. | A stolen super-admin password exposes billing/plan control (not tenant CRM data — the platform DB role cannot read it). | Add 2FA for platform roles before launch, or restrict platform login by network/IP. |
+| B5 | **No two-factor authentication** (platform administrators and workspace owners). **OIDC single sign-on is implemented but verified only against a local mock provider** — no real Entra/Google/Okta tenant has been tried; SAML is not implemented. | A stolen super-admin password exposes billing/plan control (not tenant CRM data). SSO provider quirks (claims, `email_verified`, clock skew) are unknown until tested. | Add 2FA for platform roles (or restrict platform login by network); run the SSO flow against each provider you intend to support in staging (docs/SSO.md). |
 | B6 | **Load numbers come from one shared 4-core VM** (PostgreSQL, Redis, API, worker and the load generator competing for the same CPUs). PostgreSQL was the bottleneck; a second API instance did **not** raise throughput here. | Throughput on real infrastructure is unknown; "horizontal scalability" is proven for *correctness* (shared limits, locks, isolation), **not for throughput**. | Repeat `scripts/loadtest-*` against staging with a separate database host. |
-| B7 | **Search latency grows linearly with workspace size** (worst case ≈ 650 ms for a single query at 250k leads; ILIKE cannot use the trigram index under row level security). | Large workspaces get slow search. | Fine for the plans as shipped (professional cap = 25,000 leads); needs a dedicated search design before offering larger plans. |
+| B7 | **Broad searches** (a term matching thousands of leads) still cost ≈ 0.5 s at 250k leads because their exact `count(*)` is evaluated under row level security. *Selective* searches (rare term, e-mail, phone, multi-term) were fixed: ≈ 1.1–1.6 s → 12–25 ms at 250k (docs/SEARCH_BENCHMARKS.md). | Large workspaces still see ~0.5 s for very common terms. | Fine for the shipped plan caps (professional = 25,000 leads); for larger plans add a capped/approximate total for broad searches or a dedicated search service. |
 | B8 | No soak test (hours), no fault-injection test with real network partitions, no external penetration test or accessibility audit, browser coverage = Chromium only. | Unknown long-run behaviour (leaks, pool exhaustion over days). | Run a 24 h soak in staging; schedule a pen test. |
 | B9 | Content-Security-Policy keeps `style-src 'unsafe-inline'` (the toast library injects a `<style>`); scripts are strict (nonce, no inline, no eval). | CSS injection remains possible if an HTML injection bug appeared. | Replace/patch the toast library or add style nonces. |
-| B10 | Payments are **manual only** (by design). Metrics (Prometheus/OpenTelemetry) are not built in; logs, health endpoints and an error hook are. | Operators must alert on logs/health themselves. | Provider adapter + credentials; add a metrics exporter if wanted. |
+| B10 | Payments are **manual only** (by design). A **Prometheus exporter is now built in** (separate protected listener, tested in-process and against real API/worker processes) — but **no Prometheus/Grafana was run against it** and the alert rules / dashboard are syntax-checked only. | Operators must validate the monitoring stack in staging. | Scrape staging, fire a test alert, load the dashboard (docs/MONITORING.md). |
+| B11 | **Uploaded files are validated by content but not scanned for malware.** Office documents and PDFs can carry active content; the API serves them only as sandboxed downloads and refuses executables, scripts, markup and macro-enabled Office files, but there is no antivirus integration. | A malicious document uploaded by a member could harm the colleague who opens it locally. | Add a scanning step (ClamAV or a vendor) between upload and availability, or restrict who may upload. |
+| B12 | **A deliberate row-level-security exception exists** for search: `lf_search_lead_ids()` runs as a `BYPASSRLS` role. It is constrained (column-level grants, isolation by `app_org_id()` inside the function, `EXECUTE` only for the app role, checked by `db:verify`, covered by tenant-isolation tests) but it is new privileged code. | A future edit to that function could weaken tenant isolation. | Security review of the migration/function before launch; keep `db:verify` in the deploy pipeline; `SEARCH_STRATEGY=ilike` removes its use. |
+| B13 | **Import throughput depends on PostgreSQL statistics** (400 rows/s on a fresh database before autovacuum analysed it, 1,200–1,950 rows/s warm) and was measured on one shared VM only. | Very large first imports into a fresh database can be slower than the headline numbers. | `ANALYZE` after bulk loads; re-measure on staging hardware. |
 
 Everything else requested is implemented and covered by automated tests (details below).
+
+**Update 2026-11-25 (second phase: attachments, calendar, background imports, search, metrics, SSO — see the rows B3, B5, B7, B10–B13 above and §5.2).** 
 
 **Update 2026-11-25 (feature-completion phase).** B1–B9 are unchanged — none of them can be closed from the development environment. B10 is clarified: payments are manual **by decision**, and that workflow is now complete and database-enforced (see [FEATURE_MATRIX.md](FEATURE_MATRIX.md) §7). New residual risks introduced or revealed by this phase: (a) the only record of confirmed payments is PostgreSQL, so the restore drill must include the ledger reconciliation described in docs/BACKUP_RECOVERY.md; (b) platform billing admins are powerful and have no 2FA (B5 now also protects billing); (c) import is synchronous (2,000 rows) and exports are capped at 20,000 rows.
 
@@ -156,6 +161,16 @@ Findings from the table above and the plans: list `count(*)`, dashboard aggregat
 * **Scaling out:** with the database already saturated, a second API instance gave **no** extra throughput (125 vs 132 req/s). So: the API tier *can* be scaled horizontally without correctness problems (proved by the shared-limit, lock, idempotency and isolation tests), but *whether it raises throughput depends on database capacity*, which this environment could not demonstrate. **No throughput scalability claim is made.**
 * **Not measured:** soak/endurance, memory growth over time, network latency to a remote database, PgBouncer, browser rendering performance, import/export of large files under load, platform-admin screens, notification fan-out at scale.
 
+### 3.4 Background import throughput (2026-11-25)
+`apps/api/test/import-bench.test.ts` (opt-in: `IMPORT_BENCH_ROWS=100000 npx vitest run test/import-bench.test.ts`), same VM, real PostgreSQL/Redis, local-disk storage, inline worker, batch size 500, one workspace, 7 columns, all rows valid and unique:
+
+| Rows | File | Upload + preview (request) | Processing | Throughput | Peak RSS increase |
+|---:|---:|---:|---:|---:|---:|
+| 20,000 | 1.0 MB | 0.1 s | 12.7–16.6 s (warm statistics) / 53.7 s (cold statistics, fresh database) | 1,200–1,580 / 372 rows/s | +119–138 MB |
+| 100,000 | 5.3 MB | 0.19 s | **51.3 s** | **1,948 rows/s** | +136 MB |
+
+Per-batch cost (500 rows): lead insert ≈ 80–100 ms, tags ≈ 20–50 ms, activities ≈ 40–90 ms; the first batch also pays ≈ 1.1 s to start automations for the first 200 leads. Memory is flat (the file is streamed; only one batch of rows is held). The upload request counts rows with Papa Parse's synchronous `step` mode (the object-stream variant needed > 120 s at 100,000 rows and exceeded the request transaction — found and fixed by this benchmark). **Cold statistics:** PostgreSQL caches foreign-key check plans per connection; on a freshly created database they are planned for tiny tables and the cost grows with the workspace until autovacuum analyses the tables, which is why the first run was 3–4× slower. Not measured: concurrent imports from several workspaces, S3 latency, XLSX at 100k rows, a separate database host.
+
 ## 4. Deployment architecture
 See **DEPLOYMENT.md** (roles, migrations, rollout, first-time setup), `Dockerfile` (targets `web`, `api`, `worker`, `migrate`), `deploy/api.env.example`, `deploy/web.env.example`, `deploy/docker-compose.example.yml`, `docs/BACKUP_RECOVERY.md`, `docs/RUNBOOK.md`. Frontend: Next.js on any Node-capable host or Vercel; API and worker: persistent Node 22 processes (Render/Fly/Railway/ECS/Cloud Run with always-on CPU/Kubernetes); managed PostgreSQL 16 and Redis 7; S3-compatible storage; SMTP provider. Configuration is validated by `npm run check:config`; the API/worker refuse to start in production with an unsafe environment (tested with real processes). No secrets are committed (`deploy/*.example` contain placeholders only; `.gitignore` excludes `deploy/.env*`).
 
@@ -192,6 +207,24 @@ New automated tests added in this phase: infrastructure/idempotency/concurrency 
 | `npm run docs:api` | 164 endpoints |
 | Load tests, Docker build, real SMTP/S3/managed DB | **not re-run / not run** (B1–B4, B6) |
 
+### 5.2 Verification run after the second phase (2026-11-25)
+| Check | Result |
+|---|---|
+| `npm run lint` / `npm run typecheck` | clean |
+| API tests (real PostgreSQL + Redis) | **289 passed, 1 opt-in benchmark skipped** (27 files; +91 new tests: attachments 16, calendar 12, imports 15, search 11, metrics 11, SSO 25, storage list 1) |
+| Web unit tests | **20 / 20** |
+| Playwright (production build) | **36 / 36** (+6: attachments, calendar drag/rollback/dialog/viewer, background import with history, SSO through a mock provider; two earlier specs referenced a label that no longer existed and were corrected) |
+| `npm run build` | succeeds |
+| `npm audit` | 0 vulnerabilities (new dependencies: `prom-client`, `openid-client` 5.7.1, `jose` for tests) |
+| `npm run scan:secrets` | no secrets in 66 browser bundle files |
+| `npm run db:verify` | passed (21 migrations applied, none unfinished; checks the new search function/role) |
+| `scripts/migration-compat.sh` | passed (old-schema database upgraded in place) |
+| `npm run docs:api` | 186 endpoints |
+| Real-process smoke | API + worker started with `METRICS_PORT`/`WORKER_METRICS_PORT`: 401 without token, metrics with token, 404 on the public API port; non-loopback host without token refused |
+| Search benchmark | 30k / 100k / 250k leads, before/after (docs/SEARCH_BENCHMARKS.md) |
+| Import benchmark | 20k and 100k rows (§3.4) |
+| Real S3, SMTP, OIDC provider, Prometheus/Grafana, Docker, managed PostgreSQL/Redis, antivirus | **not run** (B1–B5, B10–B11) |
+
 ## 6. Pre-launch checklist
 1. Build and deploy to staging from `main`; run `check:config`, migrations, `db:verify`, the full e2e suite against it (B1).
 2. Real SMTP + S3 credentials in staging; send/receive each email type; upload/replace/remove a logo (B2, B3).
@@ -202,3 +235,6 @@ New automated tests added in this phase: infrastructure/idempotency/concurrency 
 7. External penetration test; accessibility review.
 8. Never run `db:seed` in production; create the first platform super admin manually (DEPLOYMENT.md §8).
 9. Rehearse the manual-billing procedure end to end in staging (docs/RUNBOOK.md → Manual billing): confirm, extend, reverse, restore from backup and reconcile the ledger.
+10. Upload, download and delete attachments, and run a large import, against the **real bucket** in staging; test orphan cleanup (B3).
+11. Run the SSO flow against each identity provider you will support; rehearse the recovery paths in docs/RUNBOOK.md (B5).
+12. Scrape staging with Prometheus, fire a test alert, load the dashboard (B10). Decide on malware scanning for uploads (B11). Security-review the `lead_search` migration (B12).

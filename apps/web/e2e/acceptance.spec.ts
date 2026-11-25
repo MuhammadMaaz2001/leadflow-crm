@@ -245,9 +245,11 @@ test('end-to-end CRM lifecycle', async ({ browser }) => {
     await toast(ap, 'Organization re-activated');
     await op.goto('/dashboard');
     await expect(op.getByText('Dashboard', { exact: true }).first()).toBeVisible();
-    await ap.getByRole('button', { name: 'Adjust subscription' }).click();
-    await ap.getByLabel('Extend days').fill('5');
-    await ap.getByRole('button', { name: 'Apply' }).click();
+    await ap.getByRole('button', { name: 'Override plan / status' }).click();          // plan / status override (extending an expiry is done in Billing → Record payment / Extend)
+    const dlg = ap.getByRole('dialog');
+    await dlg.getByLabel('Status').selectOption('ACTIVE');
+    await dlg.getByLabel('Note').fill('Acceptance test override');
+    await dlg.getByRole('button', { name: 'Apply override' }).click();
     await toast(ap, 'Subscription adjusted');
     await adminSession.ctx.close();
   });

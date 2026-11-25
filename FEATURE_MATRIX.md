@@ -13,17 +13,17 @@ Status legend
 | Capability | Status | Evidence / limit |
 |---|---|---|
 | Create / edit / view / archive / restore, duplicate protection (email, phone, name+company) | ✅ | `business.test`, `leads-complete.test`, E2E `acceptance`, `leads` |
-| CSV **and** Excel import with preview, row validation, per-row error report, duplicate handling (skip / update / import), plan-limit check, hard cap with a clear error (no silent truncation) | ✅ | `leads-complete.test` (cap, duplicates, errors, plan limit) · ◑ synchronous, 2,000 rows per file |
+| CSV **and** Excel import: **background jobs** (streamed, checkpointed batches on BullMQ), upload + preview, row validation, duplicates (skip / import), plan-limit stop, cancel, history, downloadable error report (row number + reason + original values), temp-file cleanup; the synchronous endpoint remains for API clients (≤ 5,000 rows) | ✅ | `import-jobs.test` (success, invalid rows, duplicates, crash/retry idempotency, concurrent re-run, cancel, plan limit, tenant isolation, expiry), `import-bench` (100,000 rows in 51 s), E2E `features`, `leads` · ◑ limits: 25 MB / 100,000 rows per file, 1 active import per workspace |
 | Export CSV / Excel of the **filtered** set including custom fields, formula-injection safe, capped with an explicit error | ✅ | `leads-complete.test` · ◑ 20,000 rows per export |
 | Duplicate detection and **merge** (field choices, activities/tasks/follow-ups/deals moved, tags unioned, audit) | ✅ | `business.test`, `leads-complete.test` |
 | Custom fields (text, number, date, select, boolean): strict validation, no silent truncation/coercion, required fields, definition locks once data exists | ✅ | `leads-complete.test` |
 | Tags: create/rename/delete restricted by permission (agents cannot rename or delete) | ✅ | `leads-complete.test` |
 | Bulk actions: assign, status, tag add/remove, archive, delete-to-archive; partial failures reported | ✅ | `business.test`, `assignment.test` |
-| Search, filters (status, owner, source, tags, date ranges, unassigned, no activity) and sorting | ✅ | `business.test`, E2E `leads` |
+| Search, filters (status, owner, source, tags, date ranges, unassigned, no activity) and sorting; **large-workspace search**: trigram-indexed lookup for selective terms (rare term at 250k leads 1.1–1.6 s → 12–20 ms), cursor pagination, exact cache invalidation, `%`/`_` literal | ✅ | `search-optimization.test` (identical results old vs new, isolation, cursor, cache invalidation, index/plan), `docs/SEARCH_BENCHMARKS.md` · ◑ broad terms (thousands of matches) unchanged (~0.5 s at 250k); custom fields not searchable |
 | **Saved views stored on the server** (private or shared, per workspace, per permission) | ✅ | `leads-complete.test`, E2E `leads` (saved-views step) — replaces the browser-only views |
 | Ownership rules (agents see/edit only what they own; managers see all; viewer read-only) | ✅ | `security.test`, `assignment.test`, E2E `roles` |
 | Timeline of every change | ✅ | `business.test`, E2E `acceptance` |
-| File attachments on leads | ✗ | not built (private S3 storage exists for logos) |
+| **File attachments**: multi-upload, list (name, type, size, date, uploader), authorised download, delete (uploader or manager), timeline entries, content/MIME/extension validation, safe object keys, per-file / per-lead / per-workspace limits, orphan sweeper, merge moves files | ✅ | `attachments.test` (validation, hostile names, authorisation, cross-tenant, storage failure & cleanup, limits, deletion, merge), E2E `features` · 🔬 only the in-process fake S3 and local disk were exercised — no real bucket |
 
 ## 2. Opportunities and pipeline
 | Capability | Status | Evidence / limit |
@@ -50,7 +50,7 @@ Status legend
 | Call/email/WhatsApp/meeting/note logging (**records** the interaction, never sends anything) | ✅ | `activity-tasks.test` |
 | Follow-ups with mandatory outcome, overdue derived (never stored), reschedule, cancel with reason | ✅ | `business.test`, `activity-tasks.test` |
 | Tasks: assign, due dates, priority, complete, overdue | ✅ | `activity-tasks.test` |
-| Calendar (follow-ups, tasks) in the workspace timezone | ✅ ◑ | E2E `modules` · agenda-style, no drag-to-reschedule |
+| Calendar (follow-ups, tasks) in the workspace timezone; **drag to reschedule** (day/week/month; time in day view), optimistic update with rollback, undo, assignee/manager permission, stale/duplicate-drop protection, reminders re-armed, reschedule dialog + Alt-arrow keyboard alternative, touch long-press | ✅ | `calendar-reschedule.test` (timezone/DST, permissions, stale, completed/undated, notifications), E2E `features` (drag, failure rollback, dialog, viewer read-only) · ◑ touch drag implemented but not exercised on a real device |
 | In-app reminders for follow-ups **and tasks** (due soon, overdue), no duplicates, no reminders for archived leads | ✅ | `activity-tasks.test`, `automation-engine.test` |
 | In-app notifications: per user, read/unread/clear, preferences, never cross users/workspaces | ✅ | `activity-tasks.test` |
 | Email / SMS / WhatsApp **delivery** | ⛔ | by scope: nothing is sent; emails go to the outbox (dev mailbox or SMTP) and statuses are honest |
@@ -103,16 +103,17 @@ Status legend
 | Structured logs, request ids, slow-query log, error hook | ✅ | `operations.test` |
 | Private S3 object storage adapter (authenticated serving) | 🔬 | `storage.test` against an in-process fake S3 only |
 | SMTP delivery | 🔬 | outbox + test double; real SMTP not run |
-| Two-factor authentication / SSO | ✗ | not built |
+| Two-factor authentication | ✗ | not built |
+| **Single sign-on (OIDC)**: per-workspace, code flow + PKCE, state/nonce/issuer/audience/signature/expiry validation, encrypted client secret, safe account linking, JIT (off by default), SSO-only mode with owner break-glass, platform emergency disable, admin UI | ✅ | `sso.test` (25 tests against a local mock OIDC provider), E2E `features` · 🔬 **no real provider tested** (Entra / Google / Okta); SAML not implemented |
 | Docker/hosting deployment | 🔬 | files written, never built here (no Docker) |
-| Metrics exporter (Prometheus/OTel) | ✗ | logs + health only |
+| **Metrics** (Prometheus): HTTP, DB pool/queries, Redis, queue, workers/scheduler, jobs, imports, search, storage, SSO, sessions/workspaces; separate protected listener; example scrape config, alerts, Grafana dashboard | ✅ | `metrics.test` (protection, counters, no sensitive data, bounded labels) · 🔬 not run against a real Prometheus/Grafana |
 
 ## 10. Frontend completeness
 | Capability | Status | Evidence / limit |
 |---|---|---|
 | No inert controls: every button/menu/filter on the pages added or changed in this phase is wired to an API and exercised in a browser | ✅ | E2E `completeness`, `modules`, `leads` |
 | Responsive (390 px / 1440 px) with no horizontal overflow, including the new platform billing card | ✅ | E2E `responsive`, `completeness` |
-| Dark mode, accessibility audit beyond keyboard/ARIA basics, drag-to-reschedule calendar | ✗ | not built |
+| Dark mode, accessibility audit beyond keyboard/ARIA basics | ✗ | not built |
 
 ## Counts
-Verified ✅: all rows marked ✅ · Needs external validation 🔬: 4 · Partial ◑: 3 limits (sync import cap, export cap, agenda calendar) · Missing ✗: 5 (attachments, 2FA/SSO, metrics exporter, dark mode, calendar drag) · Blocked ⛔: 2 (message delivery, online payments — by scope).
+Verified ✅: all rows marked ✅ · Needs external validation 🔬: real SMTP, real S3 bucket (logos **and** attachments/imports), real OIDC provider, real Prometheus/Grafana, Docker/hosting, managed PostgreSQL/Redis · Partial ◑: touch drag on a real device, import limits (25 MB / 100k rows), broad-term search latency, export cap (20,000 rows), agenda-style task list · Missing ✗: two-factor authentication, SAML, dark mode, accessibility audit, calendar drag for *tasks without a due date* (by design) · Blocked ⛔: message delivery (email/SMS/WhatsApp sending), online payments — by scope.

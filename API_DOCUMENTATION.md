@@ -112,6 +112,26 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | PATCH | `/api/lead-views/{id}` | org | — | Rename a view or change whether it is shared |
 | DELETE | `/api/lead-views/{id}` | org | — | Delete a view (its owner, or anyone who can manage workspace settings) |
 
+### Lead attachments
+
+| Method | Path | Auth | Permission / feature | Summary |
+|---|---|---|---|---|
+| GET | `/api/leads/{id}/attachments` | org | — | Files attached to a lead (metadata only) |
+| POST | `/api/leads/{id}/attachments` | org | leads.update | Upload one or more files (multipart field "files"); content is validated, not the file name |
+| GET | `/api/leads/{id}/attachments/{attachmentId}/download` | org | — | Download an attachment (authorised stream through the API; the bucket is never exposed) |
+| DELETE | `/api/leads/{id}/attachments/{attachmentId}` | org | — | Remove an attachment (uploader with edit rights, or a manager) |
+
+### Lead imports
+
+| Method | Path | Auth | Permission / feature | Summary |
+|---|---|---|---|---|
+| GET | `/api/leads/import/jobs` | org | leads.import; feature: import_export | Import history (newest first) and the current limits |
+| POST | `/api/leads/import/jobs` | org | leads.import; feature: import_export | Upload a CSV/XLSX (multipart "file"): validates headers and a sample and returns a PREVIEW job. Nothing is imported until /start |
+| GET | `/api/leads/import/jobs/{jobId}` | org | leads.import; feature: import_export | Import status, counters and (for a preview) the column mapping and sample rows |
+| POST | `/api/leads/import/jobs/{jobId}/start` | org | leads.import; feature: import_export | Start a previewed import in the background (idempotent) |
+| POST | `/api/leads/import/jobs/{jobId}/cancel` | org | leads.import; feature: import_export | Cancel an import. Leads already imported by committed batches are kept |
+| GET | `/api/leads/import/jobs/{jobId}/errors` | org | leads.import; feature: import_export | Download the row-level error report (CSV): row number, problem and the original values |
+
 ### Pipelines
 
 | Method | Path | Auth | Permission / feature | Summary |
@@ -161,6 +181,12 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | PATCH | `/api/tasks/{id}` | org | tasks.manage | Update a task / change status |
 | DELETE | `/api/tasks/{id}` | org | tasks.manage | Cancel a task |
 | POST | `/api/tasks/{id}/comments` | org | tasks.manage | Comment on a task |
+
+### Calendar
+
+| Method | Path | Auth | Permission / feature | Summary |
+|---|---|---|---|---|
+| POST | `/api/calendar/reschedule` | org | — | Move a follow-up or task to another day / time (assignee or a manager; pending follow-ups and open tasks only) |
 
 ### Notifications
 
@@ -228,6 +254,7 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | GET | `/api/platform/organizations` | platform | — | Registered organizations |
 | GET | `/api/platform/organizations/{id}` | platform | — | Organization details (no lead data) |
 | POST | `/api/platform/organizations/{id}/suspend` | platform | — | Suspend an organization |
+| POST | `/api/platform/organizations/{id}/sso/disable` | platform | — | Emergency: switch off a workspace's single sign-on and its SSO-only requirement |
 | POST | `/api/platform/organizations/{id}/activate` | platform | — | Re-activate a suspended organization |
 | GET | `/api/platform/users` | platform | — | All users |
 | POST | `/api/platform/users/{id}/status` | platform | — | Activate / deactivate a user account (revokes sessions) |
@@ -261,4 +288,19 @@ Legend: **perm** = any-of permission required (otherwise any workspace member); 
 | GET | `/api/health/ready` | public | — | Readiness probe (database + redis) |
 | GET | `/api/dev/mailbox` | public | — | DEV ONLY: list outbound emails |
 | POST | `/api/dev/scheduler/tick` | public | — | DEV ONLY: run the background scheduler once |
+
+### Single sign-on
+
+| Method | Path | Auth | Permission / feature | Summary |
+|---|---|---|---|---|
+| GET | `/api/auth/sso/start` | public | — | Begin single sign-on for a workspace (redirects to the identity provider) |
+| GET | `/api/auth/sso/callback` | public | — | Identity provider redirect target: validates the response, signs the user in, redirects to the app |
+| GET | `/api/sso` | org | settings.manage | SSO configuration and status (never includes the client secret) |
+| POST | `/api/sso/discover` | org | settings.manage | Check an issuer URL: fetches its OpenID discovery document and reports what it supports |
+| PUT | `/api/sso` | org | settings.manage | Create or update the connection. Changing the issuer, client or secret switches SSO off until it is tested again |
+| POST | `/api/sso/test` | org | settings.manage | Start a test sign-in with your own account to verify the configuration (does not change any account) |
+| POST | `/api/sso/state` | org | settings.manage | Switch SSO on / off and require it (SSO-only) — only after a successful test |
+| DELETE | `/api/sso` | org | settings.manage | Remove the connection (members can use passwords again; linked identities are kept for a later re-creation) |
+| GET | `/api/sso/identities` | org | settings.manage | Members linked to the identity provider |
+| DELETE | `/api/sso/identities/{userId}` | org | settings.manage | Unlink a member from the identity provider (they must sign in and link again) |
 

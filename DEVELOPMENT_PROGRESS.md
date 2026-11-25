@@ -1,6 +1,6 @@
 # Development progress
 
-Last verified: 2026-11-25 (feature-completion audit → [FEATURE_MATRIX.md](FEATURE_MATRIX.md); product audit → [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md); production-readiness engineering → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)). Built from scratch in this repository (no previously shared code was used). Status below reflects what was **actually executed and verified** in this environment (PostgreSQL 16, Redis 7, Node 22, Chromium via Playwright).
+Last verified: 2026-11-25 (second phase — attachments, calendar, background imports, search, metrics, SSO: see the section below; feature-completion audit → [FEATURE_MATRIX.md](FEATURE_MATRIX.md); product audit → [PRODUCT_AUDIT.md](PRODUCT_AUDIT.md); production-readiness engineering → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)). Built from scratch in this repository (no previously shared code was used). Status below reflects what was **actually executed and verified** in this environment (PostgreSQL 16, Redis 7, Node 22, Chromium via Playwright).
 
 ## Milestones
 - [x] **M0** Environment inspected: empty git repo, Node 22, PostgreSQL 16 and Redis 7 available locally (no Docker)
@@ -15,15 +15,15 @@ Last verified: 2026-11-25 (feature-completion audit → [FEATURE_MATRIX.md](FEAT
 ## Verified results
 | Check | Result |
 |---|---|
-| API integration tests (Vitest + Supertest, real PostgreSQL + Redis, schema recreated from migrations on every run) | **198 / 198 pass** in 20 files (auth, lifecycle, isolation, business, settings, security, database, infrastructure & concurrency, operations, storage, payments, real processes, **manual billing, leads-complete, assignment, automation engine, reports vs raw rows, plan enforcement, pipeline integrity, activity/tasks**) |
+| API integration tests (Vitest + Supertest, real PostgreSQL + Redis, schema recreated from migrations on every run) | **289 pass + 1 opt-in benchmark skipped** in 27 files (auth, lifecycle, isolation, business, settings, security, database, infrastructure & concurrency, operations, storage, payments, real processes, manual billing, leads-complete, assignment, automation engine, reports vs raw rows, plan enforcement, pipeline integrity, activity/tasks, **lead attachments, calendar rescheduling, background imports, search optimisation, metrics, SSO**) |
 | Web unit tests (Vitest + Testing Library) | **20 / 20 pass** |
-| Playwright e2e (Chromium, production web build) | **30 / 30 pass** — acceptance journey, leads (incl. server-side saved views), permissions, module specs (incl. manual billing), roles/workspaces/platform, **completeness (hand-over, automation actions, billing UI, mobile layout)**, security (CSP + headers + cookies), responsive |
+| Playwright e2e (Chromium, production web build) | **36 / 36 pass** — acceptance journey, leads (incl. server-side saved views), permissions, module specs (incl. manual billing), roles/workspaces/platform, **completeness (hand-over, automation actions, billing UI, mobile layout)**, security (CSP + headers + cookies), responsive |
 | TypeScript (strict) `npm run typecheck` | clean for shared, api, web |
 | Lint `npm run lint` (ESLint flat config, `--max-warnings=0`) | clean |
 | Production build `npm run build` | succeeds (shared → Prisma client → API `tsc` → `next build`, 36 routes); built API runs with `node apps/api/dist/server.js` |
-| Migrations | 14 migrations apply cleanly on an empty database (every API test run) and upgrade a populated old-schema database in place (`scripts/migration-compat.sh`) |
+| Migrations | 21 migrations apply cleanly on an empty database (every API test run) and upgrade a populated old-schema database in place (`scripts/migration-compat.sh`) |
 | Seed | 2 organizations, 3 platform admins, 76 leads, opportunities, follow-ups, tasks, activities, notifications, invoices, usage history |
-| OpenAPI | 164 endpoints documented (`/api/docs` in development, `docs/openapi.json`, `API_DOCUMENTATION.md`) |
+| OpenAPI | 186 endpoints documented (`/api/docs` in development, `docs/openapi.json`, `API_DOCUMENTATION.md`) |
 | Background jobs | BullMQ worker verified live: minute scheduler created reminder/re-engagement tasks from seeded data; inline mode used by tests |
 | Console / network errors | crawled every workspace and platform route as manager, owner and platform admin: no console errors, no failed API calls, no horizontal overflow at 1440px / 390px |
 
@@ -55,17 +55,28 @@ Row-by-row status of every capability (verified / needs external validation / pa
 * **Operations:** `/platform/health` shows applied migrations, workers and providers (`20261127093000_platform_health_read`); the dev seed now writes paid invoices through the platform role.
 * **Bugs found by the new tests and fixed:** failed automation executions did not count attempts; overdue-task notice suppressed by the reminder flag; archived leads' deals inflated the dashboard pipeline; platform health showed 0 migrations; import/export silently truncated at the cap; agents could rename/delete tags; custom-field values silently coerced; deactivation orphaned work; mobile overlap on the platform billing card.
 
+## Second phase: six integrations (2026-11-25)
+Design and operating notes: ARCHITECTURE.md (attachments, calendar, imports, search, metrics, SSO), docs/SEARCH_BENCHMARKS.md, docs/MONITORING.md, docs/SSO.md, FEATURE_MATRIX.md; findings: PRODUCT_AUDIT.md §8; blockers: PRODUCTION_READINESS.md (B3, B5, B7, B10–B13).
+* [x] **Lead attachments** — `lead_attachments` (+ `ATTACHMENT_ADDED/REMOVED` timeline types), private storage adapters (S3 / local dev), content-validated upload, authorised download, delete, limits, orphan sweeper, Files tab. *Unverified:* real S3.
+* [x] **Calendar drag-to-reschedule** — `POST /api/calendar/reschedule`, workspace-timezone resolution, optimistic UI + rollback + undo, dialog/keyboard/touch alternatives. *Unverified:* touch on a real device.
+* [x] **Background imports** — `import_jobs`/`import_job_errors`, streamed checkpointed batches on BullMQ, preview/start/cancel/history/error report, cleanup; 100,000 rows in 51 s.
+* [x] **Search** — `lf_search_lead_ids()` + `leadflow_search` role, cursor pagination, exact cache invalidation; selective searches 70–90× faster at 250k leads; broad terms unchanged.
+* [x] **Metrics** — protected Prometheus listeners, HTTP/DB/queue/worker/import/search/storage/SSO metrics, `deploy/monitoring/` (scrape config, alerts, Grafana dashboard). *Unverified:* real Prometheus/Grafana.
+* [x] **SSO (OIDC)** — per-workspace connection, PKCE flow, encrypted secrets, safe linking, JIT, SSO-only mode, platform break-glass, admin UI, login entry. *Unverified:* any real provider.
+* Migrations added (all additive): `lead_attachments`, `import_jobs`, `lead_search`, `metrics_read`, `sso`, `sso_platform_recovery`, `new_table_fk_indexes`.
+* **Resume here:** the blockers in PRODUCTION_READINESS.md (real S3/IdP/Prometheus validation, malware scanning, 2FA, staging deployment); product gaps: dark mode, accessibility audit, SAML, broad-term search total, cursor pagination in the web UI.
+
 ## Acceptance workflow (all verified end-to-end by `apps/web/e2e/acceptance.spec.ts`)
 1. user registers → 2. verifies email (dev link) → 3. creates workspace → 4. onboarding wizard (details, sources, assignment, invitations) → 5. invited manager & agent join → 6. manager creates a lead (duplicate protection checked) → 7. assigns it → 8. salesperson sees it → 9. logs a call → 10. schedules a follow-up → 11. it appears in the calendar → 12–13. scheduler generates the reminder → 14. follow-up completed with mandatory outcome → 15. opportunity created, moved with drag & drop → 16–17. won → 18. timeline shows every change → 19. dashboard KPIs update → 20. reports reflect the data → 21. a second company cannot access the first company's data (UI and API spoofing) → 22. plan limits are enforced → 23. platform administrator suspends / re-activates the workspace and adjusts its subscription.
 
 ## Known limitations
 * **No external integrations (by scope)**: no payment processor, no email/SMS/WhatsApp delivery. Emails go to the DB-backed dev mailbox (or SMTP when configured, never exercised against a real server here); payments are confirmed manually by platform billing admins. Notifications are in-app only.
 * **Prisma `migrate reset`** refuses to run when invoked by an AI agent (safety guard) — `npm run db:reset` must be run by a human; `npm run db:seed` is idempotent for the demo workspaces and was used instead.
-* CSV/Excel import is synchronous and capped at 2,000 rows per file; exports at 20,000 rows.
-* Calendar day/week views are agenda style (no drag-to-reschedule); `datetime-local` inputs use the browser timezone while reports use the workspace timezone.
+* Imports run in the background (25 MB / 100,000 rows per file, 1 active per workspace); exports are capped at 20,000 rows.
+* The calendar supports drag-to-reschedule and renders in the workspace timezone; `datetime-local` inputs in forms still use the browser timezone.
 * The global `users` table has no RLS (needed for login); API code never lists users outside a workspace and the platform DB role cannot read CRM tables. Platform admins deliberately see only aggregate usage for an organization.
-* Logos are stored as base64 text (≤ 400 KB) rather than in object storage; no file attachments on leads.
-* Not implemented: 2FA/SSO, dark mode, per-field audit diff UI, multi-currency conversion, accessibility audit beyond keyboard/ARIA basics, load testing.
+* Logos are stored as base64 text (≤ 400 KB) unless `STORAGE_PROVIDER=s3`; lead attachments and import files require object storage (S3 in production, local disk in development).
+* Not implemented: 2FA, SAML, dark mode, per-field audit diff UI, multi-currency conversion, accessibility audit beyond keyboard/ARIA basics.
 * The scheduler walks workspaces sequentially each minute; very large deployments would shard it.
 
 ## Remaining work / next steps

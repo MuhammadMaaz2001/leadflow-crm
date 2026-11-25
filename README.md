@@ -55,6 +55,14 @@ the latest payment can be reversed with a reason, and every payment/extension is
 expiry but **cannot mark anything paid or extend** — the API has no such endpoint and database triggers refuse it from the tenant role. The extension policy is in
 [ARCHITECTURE.md](ARCHITECTURE.md#subscriptions--billing); procedures are in [docs/RUNBOOK.md](docs/RUNBOOK.md#manual-billing).
 
+## Integrations added in the latest phase (details in ARCHITECTURE.md)
+* **Lead file attachments** — PDF/Word/Excel/CSV/JPG/PNG/WebP up to `ATTACHMENT_MAX_BYTES` (10 MB), validated by content, stored in the private object store (S3-compatible in production; a local-disk adapter in development), downloaded through authorised API calls, listed on the lead's **Files** tab and in its timeline.
+* **Calendar drag-to-reschedule** — drag follow-ups and tasks between days (and times in day view); optimistic update with rollback; reschedule dialog and Alt+arrow keys as the accessible alternative; times are handled in the workspace timezone.
+* **Background imports** — CSV/Excel up to 25 MB / 100,000 rows are uploaded, previewed and processed by the worker in checkpointed batches, with progress, cancel, history and a downloadable error report.
+* **Faster large-workspace search** — trigram-indexed lookup for selective terms (rare term at 250k leads: ~1.4 s → ~20 ms), cursor pagination, exact cache invalidation. Benchmarks: [docs/SEARCH_BENCHMARKS.md](docs/SEARCH_BENCHMARKS.md).
+* **Prometheus metrics** on a separate, protected listener (`METRICS_PORT`) + example scrape config, alerts and Grafana dashboard in `deploy/monitoring/`: [docs/MONITORING.md](docs/MONITORING.md).
+* **Single sign-on (OpenID Connect)** per workspace, with PKCE, encrypted secrets, safe linking, optional just-in-time provisioning and an SSO-only mode: [docs/SSO.md](docs/SSO.md). Tested against a mock provider only.
+
 ## Commands
 
 | Command | What it does |
@@ -86,5 +94,5 @@ Authentication & workspaces · dashboard & analytics · lead management (CRUD, s
 
 See [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md) for the verified status, test results and known limitations.
 
-## Test results (last run in this environment)
-`npm test` → API 51/51 · web 13/13 · `npm run test:e2e` → 6/6 · `npm run build` ✔ · `npm run typecheck` ✔. Details and known limitations: [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md).
+## Test results (last run in this environment, 2026-11-25)
+API 289 passed + 1 opt-in benchmark skipped (27 files, real PostgreSQL + Redis) · web unit 20/20 · Playwright 36/36 (production build) · `npm run lint`, `typecheck`, `build`, `npm audit` (0), `scan:secrets`, `db:verify` (21 migrations), `scripts/migration-compat.sh` all pass. Details, limits and the list of things **not** verified: [DEVELOPMENT_PROGRESS.md](DEVELOPMENT_PROGRESS.md), [FEATURE_MATRIX.md](FEATURE_MATRIX.md), [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).

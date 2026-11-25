@@ -3352,6 +3352,15 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -5104,6 +5113,568 @@
         "parameters": [
           {
             "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/{id}/attachments": {
+      "get": {
+        "tags": [
+          "Lead attachments"
+        ],
+        "summary": "Files attached to a lead (metadata only)",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Lead attachments"
+        ],
+        "summary": "Upload one or more files (multipart field \"files\"); content is validated, not the file name",
+        "description": "Requires permission: leads.update. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/{id}/attachments/{attachmentId}/download": {
+      "get": {
+        "tags": [
+          "Lead attachments"
+        ],
+        "summary": "Download an attachment (authorised stream through the API; the bucket is never exposed)",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/{id}/attachments/{attachmentId}": {
+      "delete": {
+        "tags": [
+          "Lead attachments"
+        ],
+        "summary": "Remove an attachment (uploader with edit rights, or a manager)",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/import/jobs": {
+      "get": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Import history (newest first) and the current limits",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Upload a CSV/XLSX (multipart \"file\"): validates headers and a sample and returns a PREVIEW job. Nothing is imported until /start",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/import/jobs/{jobId}": {
+      "get": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Import status, counters and (for a preview) the column mapping and sample rows",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/import/jobs/{jobId}/start": {
+      "post": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Start a previewed import in the background (idempotent)",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "duplicates": {
+                    "default": "skip",
+                    "type": "string",
+                    "enum": [
+                      "skip",
+                      "import"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/import/jobs/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Cancel an import. Leads already imported by committed batches are kept",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/leads/import/jobs/{jobId}/errors": {
+      "get": {
+        "tags": [
+          "Lead imports"
+        ],
+        "summary": "Download the row-level error report (CSV): row number, problem and the original values",
+        "description": "Requires permission: leads.import. Requires plan feature: import_export. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
             "in": "path",
             "required": true,
             "schema": {
@@ -7718,6 +8289,91 @@
         }
       }
     },
+    "/api/calendar/reschedule": {
+      "post": {
+        "tags": [
+          "Calendar"
+        ],
+        "summary": "Move a follow-up or task to another day / time (assignee or a manager; pending follow-ups and open tasks only)",
+        "description": "Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "followup",
+                      "task"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "start": {},
+                  "date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "time": {
+                    "type": "string",
+                    "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                  },
+                  "expectedStart": {},
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
     "/api/notifications": {
       "get": {
         "tags": [
@@ -10237,6 +10893,69 @@
         }
       }
     },
+    "/api/platform/organizations/{id}/sso/disable": {
+      "post": {
+        "tags": [
+          "Platform administration"
+        ],
+        "summary": "Emergency: switch off a workspace's single sign-on and its SSO-only requirement",
+        "description": "Platform administrators only.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
     "/api/platform/organizations/{id}/activate": {
       "post": {
         "tags": [
@@ -12040,6 +12759,535 @@
         "description": "",
         "security": [],
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/auth/sso/start": {
+      "get": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Begin single sign-on for a workspace (redirects to the identity provider)",
+        "description": "",
+        "security": [],
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "next",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/auth/sso/callback": {
+      "get": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Identity provider redirect target: validates the response, signs the user in, redirects to the app",
+        "description": "",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso": {
+      "get": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "SSO configuration and status (never includes the client secret)",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Create or update the connection. Changing the issuer, client or secret switches SSO off until it is tested again",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "issuer": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 300
+                  },
+                  "clientId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "clientSecret": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "scopes": {
+                    "default": "openid email profile",
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "allowedEmailDomains": {
+                    "default": [],
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$"
+                    }
+                  },
+                  "allowUnverifiedEmail": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "jitEnabled": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "jitRoleId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "issuer",
+                  "clientId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Remove the connection (members can use passwords again; linked identities are kept for a later re-creation)",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso/discover": {
+      "post": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Check an issuer URL: fetches its OpenID discovery document and reports what it supports",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "issuer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso/test": {
+      "post": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Start a test sign-in with your own account to verify the configuration (does not change any account)",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso/state": {
+      "post": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Switch SSO on / off and require it (SSO-only) — only after a successful test",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "enforce": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso/identities": {
+      "get": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Members linked to the identity provider",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK — { data, meta? }"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "402": {
+            "description": "Plan limit or feature restriction"
+          },
+          "403": {
+            "description": "Forbidden / not a member / missing permission"
+          }
+        }
+      }
+    },
+    "/api/sso/identities/{userId}": {
+      "delete": {
+        "tags": [
+          "Single sign-on"
+        ],
+        "summary": "Unlink a member from the identity provider (they must sign in and link again)",
+        "description": "Requires permission: settings.manage. Tenant-scoped: send the workspace in the X-Org-Id header.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Org-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK — { data, meta? }"

@@ -6,6 +6,8 @@ Audit date: 2026-11-24. Scope: UI/UX, functional behaviour, security, database, 
 
 > **Update 2026-11-25 (feature-completion phase):** a third audit pass re-verified every module against the code and database and filled the gaps it found — manual billing, server-side saved views, hand-over on deactivation, automation actions/safety, three more reports, task reminders, plan-limit and pipeline integrity checks. The row-by-row result is **[FEATURE_MATRIX.md](FEATURE_MATRIX.md)**; the section below lists what was found and fixed in that pass.
 
+> **Update 2026-11-25 (second phase):** six integrations were added (lead attachments, calendar drag-to-reschedule, background imports, indexed search, Prometheus metrics, OIDC single sign-on). §8 lists what the work found in the existing code and in its own first drafts; row-by-row status is in [FEATURE_MATRIX.md](FEATURE_MATRIX.md).
+
 > **This document does not declare the product production-ready.** It records what was tested, what was fixed and what is still open. See the last section before deploying.
 
 ## 1. Method
@@ -152,3 +154,25 @@ Method: for each area requested (leads, pipeline, team/assignment, activities/ta
 | 11 | The development seed inserted paid invoices through the tenant role | Low (dev tooling) | Seed writes paid invoices through the platform role, like production billing |
 
 Still **not** verified or built: see [FEATURE_MATRIX.md](FEATURE_MATRIX.md) (🔬 / ◑ / ✗ / ⛔ rows) and the blockers in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). This pass changes nothing about the verdict: **not declared production-ready**.
+
+## 8. Second phase: six integrations (2026-11-25) — findings
+Method: audit the existing code first (storage adapter, lead module, calendar, import, search plans, health/logging, auth), then implement each feature with tests that fail for the unsafe behaviours, then measure. Issues found in the **existing** product are marked ★; the others were found in the new work by its own tests/benchmarks and fixed before commit.
+
+| # | Finding | Severity | Resolution |
+|---|---|---|---|
+| ★1 | The pg_trgm indexes created in the first migration were **never used** for the application role: row level security evaluates the tenant policy before non-leakproof operators and `ILIKE` is not leakproof, so every rare-term search scanned the workspace (`Rows Removed by Filter: 249,999`) | High for large workspaces (performance) | `lf_search_lead_ids()` `SECURITY DEFINER` function with a constrained `BYPASSRLS` role; 70–90× faster selective searches at 250k leads; checked by `db:verify` |
+| ★2 | Typing `_` or `%` in lead search acted as a **wildcard** (`a_b` also found `Axb`) | Low (wrong results) | Both search paths treat them literally; tested old vs new |
+| ★3 | The large-workspace lead total could be **up to 20 s stale** after a create/archive/import | Low–Medium (wrong number) | Exact invalidation through a per-workspace lead-data version bumped after every committing transaction that wrote leads/lead tags (central, cannot be forgotten at a call site) |
+| ★4 | The calendar grouped and displayed events in the **browser's** timezone although reminders/reports use the workspace timezone | Medium (wrong day around midnight / DST) | Calendar renders in the workspace timezone; the server resolves a dropped date/time in that timezone (DST-safe) |
+| ★5 | Imports were synchronous and capped at 5,000 rows per request, all inside one request | Medium (large files unusable) | Background, streamed, checkpointed, resumable import jobs (100,000 rows in 51 s) |
+| 6 | First draft of the upload request counted rows with Papa Parse's *object stream*: at 100,000 rows it exceeded the 120 s request transaction | High (found by the benchmark) | Synchronous `step` mode; 0.19 s for 100,000 rows |
+| 7 | First draft of the search function was a plain SQL function: the pattern was a computed column, the planner chose a sequential scan (3.6 s) | High (found by measuring) | PL/pgSQL building the statement with literal patterns (`%L`): 2–14 ms |
+| 8 | First draft of SSO JIT created the user **before** checking the seat limit, leaving an orphan user when the limit was hit | Medium (found by the test) | Seat check first; test asserts nothing is created |
+| 9 | `POST /sso/state {enforce:true}` on a disabled connection silently did nothing | Low | `409 SSO_NOT_ENABLED` |
+| 10 | Metrics route labels lost the `/api` prefix on error responses (the router's base URL is gone by then) | Low | Pattern recorded when the handler starts |
+| 11 | Import cost grew with workspace size on a fresh database (foreign-key plan made with empty-table statistics) | Informational | Documented (`ANALYZE` after bulk loads); measured 372 → 1,200–1,950 rows/s |
+| 12 | Two Playwright specs from the earlier phase (`acceptance`, `roles`) referenced a button label ("Adjust subscription") that no longer exists in the UI — they fail against the current build | Test debt | Corrected to the current UI ("Override plan / status"); **my previous report's "30/30" must therefore be read as not covering those two specs against a current build** |
+
+**Security controls added** (all with tests): content/MIME/extension validation, safe keys, sandboxed downloads, per-lead authorisation, quotas, orphan sweeper (attachments); assignee/manager permission, stale/duplicate protection, workspace-timezone resolution (calendar); job-row lock + checkpoint idempotency, concurrency caps, plan stop, private temp files (imports); constrained search role + in-function isolation (search); protected separate listener, token required off-loopback, closed label set, no personal data (metrics); PKCE/state/nonce/signature/issuer/audience/expiry validation by a certified library, browser-bound single-use state, safe linking, encrypted secrets, SSRF guard, break-glass recovery (SSO).
+
+**Still not verified or built:** real S3 / OIDC provider / Prometheus; malware scanning of uploads; two-factor authentication; SAML; touch drag on a real device; broad-term search latency (see [docs/SEARCH_BENCHMARKS.md](docs/SEARCH_BENCHMARKS.md) §5). **Verdict unchanged: not declared production-ready.**

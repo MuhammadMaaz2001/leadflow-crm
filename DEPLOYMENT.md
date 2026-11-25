@@ -108,6 +108,19 @@ Set `CSP_UPGRADE_INSECURE_REQUESTS=true` when served over HTTPS.
 * Email: set `EMAIL_TRANSPORT=smtp` plus SMTP variables. Mail is written to an outbox in the same transaction as the business change and delivered by the worker; the true status (`QUEUED/SENT/FAILED/UNDELIVERABLE`) is stored. With `EMAIL_TRANSPORT=none` nothing is pretended: mails are marked `UNDELIVERABLE`. Configure SPF/DKIM/DMARC for the sending domain.
 * Payments: no processor is integrated. `PAYMENT_PROVIDER=manual`: a platform **billing admin** confirms payments received outside the system (*Platform → Workspace → Billing*, list at `/platform/invoices`) and chooses the extension (1/3/6/12 months or custom days); tenants can neither mark invoices paid nor extend a subscription in any environment — the API has no such endpoint and DB triggers refuse the write from the tenant role. Only `SUPER_ADMIN` and `BILLING_ADMIN` can record or reverse payments; `SUPPORT_ADMIN` is read-only. Create the first super admin manually (§8) and give billing staff the `BILLING_ADMIN` role. The provider contract and the hardened settlement routine are in `apps/api/src/modules/subscriptions/payment-provider.ts` — an adapter needs real credentials, a webhook route with raw-body signature verification, and its own review before use.
 
+### 7.1 Object storage is now required for attachments and imports
+`STORAGE_PROVIDER=s3` (private bucket, no public ACLs, no CDN in front) is **required in production** for lead attachments and background imports; without it those features answer `503 FEATURE_UNAVAILABLE` (logos then stay inline in PostgreSQL). The application never creates signed URLs: downloads are streamed through authorised API calls. Give the credentials `PutObject`, `GetObject`, `DeleteObject`, `ListBucket` on the bucket. Enable versioning only if you accept that deleted attachments stay recoverable in the bucket (privacy policy decision). **Not validated against a real bucket in this repository.**
+
+### 7.2 Monitoring
+Set `METRICS_PORT` (API) and `WORKER_METRICS_PORT` (worker) on a private interface, `METRICS_HOST` to that address and `METRICS_TOKEN` (≥ 24 random characters). Point Prometheus at them with the bearer token (`deploy/monitoring/prometheus.yml`), load `alerts.yml`, import `grafana-dashboard.json`. Details and the metric list: docs/MONITORING.md. The network policy must keep these ports off the public internet.
+
+### 7.3 Single sign-on
+Generate `SSO_ENCRYPTION_KEY` (`openssl rand -base64 32`), store it in the secret manager **and with your database backups** (losing it makes stored client secrets unreadable; admins must re-enter them). The callback URL to register at each identity provider is `<WEB_URL>/api/auth/sso/callback` (shown in Settings → Single sign-on). The API host must be able to reach the identity provider over https (egress allow-list). See docs/SSO.md.
+
+### 7.4 Database roles introduced by this release
+Migrations now also create the `NOLOGIN` role `leadflow_search` (`BYPASSRLS`, column-level `SELECT` on a few `leads` columns) that owns `lf_search_lead_ids()`, and the platform role gains column-level privileges on `import_jobs.status` and `sso_connections`. As with `leadflow_platform`, creating a `BYPASSRLS` role and changing a function's owner needs a privileged migration account (a superuser, or on managed PostgreSQL an admin that can be granted membership of those roles — grant it before running the migration job). `npm run db:verify` checks the function's owner/privileges and the roles' grants.
+Build time: the migration creates one more trigram index (`leads_phone_norm_trgm`); on a very large `leads` table build it with `CREATE INDEX CONCURRENTLY` beforehand (the migration uses `IF NOT EXISTS`).
+
 ## 8. First-time setup of an environment
 1. Provision PostgreSQL, Redis, bucket, SMTP, DNS/TLS.
 2. Fill the secret manager from `deploy/api.env.example`; run `npm run check:config`.

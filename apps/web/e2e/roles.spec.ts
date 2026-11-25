@@ -122,7 +122,7 @@ test.describe('platform administrator roles', () => {
     await sup.p.getByLabel('Search organizations').fill(ws.name);
     await sup.p.getByRole('table').getByText(ws.name).click();
     await expect(sup.p.getByRole('button', { name: 'Suspend' })).toBeEnabled();
-    await expect(sup.p.getByRole('button', { name: 'Adjust subscription' })).toBeDisabled();
+    await expect(sup.p.getByRole('button', { name: 'Override plan / status' })).toBeDisabled();
     // the platform shell has its own navigation and no tenant data
     await expect(sup.p.getByRole('navigation', { name: 'Platform' })).toBeVisible();
     await expect(sup.p.getByRole('navigation', { name: 'Main' })).toHaveCount(0);

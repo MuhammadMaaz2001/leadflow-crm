@@ -46,6 +46,15 @@ cp .env.example .env
 | `PAYMENT_PROVIDER` | `manual` | Only `manual` exists. Any other value is rejected. Payments are recorded by platform billing admins |
 | `AUTOMATION_MAX_PER_HOUR` | 2000 | Safety budget: automation executions per workspace per hour; beyond it new events are not processed and a warning is logged (protects against runaway rules and huge imports) |
 | `AUTOMATION_MAX_RULES` | 50 | Maximum automation rules per workspace |
+| `STORAGE_LOCAL_DIR` | `.data/uploads` | Development/test only: where attachments and import files go when no S3 bucket is configured. Production **requires** `STORAGE_PROVIDER=s3` for attachments and imports (otherwise those features answer 503) |
+| `ATTACHMENT_MAX_BYTES`, `ATTACHMENT_MAX_FILES_PER_REQUEST`, `ATTACHMENT_MAX_PER_LEAD`, `ATTACHMENT_WORKSPACE_MAX_BYTES`, `ATTACHMENT_ORPHAN_GRACE_MS` | 10 MB (max 100 MB), 10 (max 25), 50, 2 GB (0 = unlimited), 1 h | Lead attachment limits and the age after which an unreferenced object is treated as an orphan by the sweeper |
+| `IMPORT_MAX_FILE_BYTES`, `IMPORT_MAX_ROWS`, `IMPORT_BATCH_SIZE` | 25 MB, 100,000, 500 | Background import limits (file size, rows per file, rows committed per transaction) |
+| `IMPORT_MAX_ACTIVE_PER_ORG`, `IMPORT_MAX_CONCURRENT`, `IMPORT_MAX_ATTEMPTS` | 1, 2, 3 | Active imports per workspace, running imports across the cluster, attempts before `FAILED` |
+| `IMPORT_PREVIEW_TTL_HOURS`, `IMPORT_HISTORY_DAYS`, `IMPORT_ERROR_CAP` | 24, 90, 10,000 | Unstarted previews expire; finished jobs are purged after; stored error rows per job |
+| `SEARCH_STRATEGY`, `SEARCH_MAX_IDS` | `indexed`, 2,000 | `ilike` restores the previous search (rollback). A search matching more than `SEARCH_MAX_IDS` leads uses the early-terminating predicate instead of the trigram id list |
+| `METRICS_PORT`, `WORKER_METRICS_PORT`, `METRICS_HOST`, `METRICS_TOKEN` | – , – , `127.0.0.1`, – | Prometheus listeners (API / worker). Disabled unless a port is set. Binding a non-loopback host **requires** `METRICS_TOKEN` (≥ 24 chars) — the process refuses to start otherwise. Never expose these ports publicly |
+| `SSO_ENCRYPTION_KEY` | – | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts SSO client secrets in the database. **Required in production to use SSO** (without it the SSO settings answer 503); development uses a fixed public key. Keep it in the secret manager and back it up with the database |
+| `SSO_ALLOW_PRIVATE_IDP`, `SSO_STATE_TTL_SECONDS` | `false` in production (`true` in dev/test), 600 | Allow identity providers on private addresses (on-prem IdP; weakens the SSRF guard); lifetime of an in-flight sign-in |
 | `CSP_UPGRADE_INSECURE_REQUESTS` | – | Web: add `upgrade-insecure-requests` to the CSP when served over https |
 
 `NODE_ENV=production npm run check:config` validates a real environment against the production rules; the API and worker run it at start-up.
